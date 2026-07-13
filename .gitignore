@@ -15,3 +15,5 @@ dist/
 
 tutorial/*.db
 tutorial/logs/
+
+**__pycache__**

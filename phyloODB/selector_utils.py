@@ -1897,6 +1897,7 @@ def resolve_selector_candidates(
         request.exclude_accessions,
         allow_bare=allow_bare_variables,
     )
+    explicit_seed_selector = bool(request.accessions) or request.taxid is not None or bool(request.clade)
 
     taxid_values: List[int] = []
     if request.taxid is not None:
@@ -1952,7 +1953,7 @@ def resolve_selector_candidates(
         or protein_only
     )
 
-    if not pool and (allow_all or request.allow_all):
+    if not pool and (allow_all or request.allow_all) and not explicit_seed_selector:
         pool = _select_accessions_by_filters(
             manager,
             root_id=root_id,

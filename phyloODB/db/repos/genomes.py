@@ -342,8 +342,6 @@ class GenomeRepository(BaseRepository):
             return True
 
     def insert_taxdump(self, path):
-        original_journal = self.core.fetchone("PRAGMA journal_mode")[0]
-        self.core.execute("PRAGMA journal_mode = DELETE")
         self.core.execute("PRAGMA synchronous = NORMAL")
         self.core.execute("PRAGMA temp_store = MEMORY")
 
@@ -407,7 +405,5 @@ class GenomeRepository(BaseRepository):
             if path.endswith(".tar.gz"):
                 shutil.rmtree(extract_dir, ignore_errors=True)
             with suppress(sqlite3.Error):
-                if original_journal and str(original_journal).upper() != "DELETE":
-                    self.core.execute(f"PRAGMA journal_mode = {original_journal}")
-                    self.core.execute("PRAGMA busy_timeout = 5000")
-                    self.core.execute("PRAGMA read_uncommitted = true")
+                self.core.execute("PRAGMA busy_timeout = 5000")
+                self.core.execute("PRAGMA read_uncommitted = true")

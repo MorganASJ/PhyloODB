@@ -190,8 +190,6 @@ Important operational rules:
 
 The `reports`, `cache`, and `misc` root kinds are different. They are shared operational buckets rather than primary working-root toggles: reports hold task reports, cache holds reusable intermediate files such as BLAST databases, and misc is for auxiliary derived artifacts that do not naturally belong under the main genome/library/orthofinder/export roots.
 
-[Figure placeholder: command tree showing top-level commands and the split between inspection, execution, and control commands.]
-
 ## 4. Creating a database
 
 A project normally begins with:
