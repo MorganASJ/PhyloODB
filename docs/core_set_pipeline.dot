@@ -1,0 +1,104 @@
+digraph CoreSetPipeline {
+  graph [
+    rankdir=LR,
+    splines=ortho,
+    overlap=false,
+    pad=0.25,
+    nodesep=0.45,
+    ranksep=0.7,
+    bgcolor="white",
+    fontname="Helvetica"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Helvetica",
+    fontsize=11,
+    color="#355c7d",
+    fillcolor="#f7fbff",
+    margin="0.16,0.10"
+  ];
+
+  edge [
+    color="#5c6f82",
+    arrowsize=0.8,
+    penwidth=1.2
+  ];
+
+  start [label="Selected taxa", shape=oval, fillcolor="#eaf4ea", color="#4d7c4d"];
+
+  subgraph cluster_inputs {
+    label="Inputs";
+    color="#d7e3f0";
+    style="rounded";
+    fillcolor="#f9fcff";
+
+    busco [label="BUSCO runs"];
+    orthofinder [label="OrthoFinder run"];
+  }
+
+  subgraph cluster_busco {
+    label="BUSCO side";
+    color="#d9ead3";
+    style="rounded";
+    fillcolor="#fbfef9";
+
+    complete [label="Complete BUSCOs\nSC + DUP", fillcolor="#eef8ea", color="#5a8f5a"];
+    family_fastas [label="Family FASTAs", fillcolor="#eef8ea", color="#5a8f5a"];
+  }
+
+  subgraph cluster_match {
+    label="Matching";
+    color="#f2dfc2";
+    style="rounded";
+    fillcolor="#fffdf8";
+
+    og_seqs [label="OG sequences", fillcolor="#fff6e8", color="#a06d1f"];
+    map [label="BUSCO ↔ OG map", fillcolor="#fff6e8", color="#a06d1f"];
+    exact [label="Exact 1:1 pairs", fillcolor="#fff6e8", color="#a06d1f"];
+    occupancy [label="Min species", fillcolor="#fff6e8", color="#a06d1f"];
+  }
+
+  subgraph cluster_trees {
+    label="Tree checks";
+    color="#e7d7f5";
+    style="rounded";
+    fillcolor="#fcfaff";
+
+    trees [label="Resolved gene trees", fillcolor="#f6efff", color="#7b5ea7"];
+    paralogs [label="In / out paralogs", fillcolor="#f6efff", color="#7b5ea7"];
+  }
+
+  subgraph cluster_outputs {
+    label="Outputs";
+    color="#d7e3f0";
+    style="rounded";
+    fillcolor="#f9fcff";
+
+    good [label="Good families", shape=oval, fillcolor="#dff3df", color="#4d7c4d"];
+    reports [label="Reports + trees", fillcolor="#f1f6fb", color="#355c7d"];
+  }
+
+  start -> busco;
+  start -> orthofinder;
+
+  busco -> complete;
+  complete -> family_fastas;
+
+  orthofinder -> og_seqs;
+  orthofinder -> trees;
+
+  family_fastas -> map;
+  og_seqs -> map;
+
+  map -> exact;
+  exact -> occupancy;
+  occupancy -> paralogs;
+  trees -> paralogs;
+
+  paralogs -> good [label="no out-paralogs", fontsize=10];
+  exact -> reports [label="exact map", fontsize=10];
+  paralogs -> reports [label="annotations", fontsize=10];
+  good -> reports [label="core set", fontsize=10];
+}

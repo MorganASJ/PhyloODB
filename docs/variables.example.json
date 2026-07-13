@@ -1,0 +1,779 @@
+{
+  "_definitions": {
+    "assemblies": {
+      "_example": {
+        "description": "Named accession lists reusable as @NAME selectors.",
+        "type": "array[string]"
+      }
+    },
+    "busco_runs": {
+      "_example": {
+        "description": "Named BUSCO run-id lists reusable by run-id aware commands.",
+        "type": "array[integer]"
+      }
+    },
+    "environment": {
+      "ACTIVE_DECONT_RUN_<library_id>": {
+        "default": null,
+        "description": "Automatically maintained pointer to the active external decontamination run for a library.",
+        "type": "object"
+      },
+      "ACTIVE_INTERNAL_DECONT_RUN_<library_id>": {
+        "default": null,
+        "description": "Automatically maintained pointer to the active internal decontamination run for a library.",
+        "type": "object"
+      },
+      "ACTIVE_PARALOG_RUN_<library_id>": {
+        "default": null,
+        "description": "Automatically maintained pointer to the active paralog-removal run for a library.",
+        "type": "object"
+      },
+      "BLASTN_PATH": {
+        "default": "blastn",
+        "description": "BLASTN executable used by nucleotide decontamination checks.",
+        "type": "path-or-command"
+      },
+      "BLASTP_PATH": {
+        "default": "blastp",
+        "description": "BLASTP executable used by protein searches and decontamination checks.",
+        "type": "path-or-command"
+      },
+      "BLOCKED_TASK_QUEUE_POLLING_TIME": {
+        "default": 2,
+        "description": "Seconds between blocked task queue polling checks.",
+        "type": "number"
+      },
+      "BUSCO_AUGUSTUS_EVALUE": {
+        "default": null,
+        "description": "Optional Augustus e-value override passed to BUSCO.",
+        "type": "number-or-null"
+      },
+      "BUSCO_AUGUSTUS_LIMIT": {
+        "default": 3,
+        "description": "Augustus retraining limit passed to BUSCO.",
+        "type": "integer"
+      },
+      "BUSCO_AUGUSTUS_LONG": {
+        "default": false,
+        "description": "Whether BUSCO Augustus mode should use the long option.",
+        "type": "boolean"
+      },
+      "BUSCO_AUGUSTUS_PARAMETERS": {
+        "default": null,
+        "description": "Additional raw Augustus parameters for BUSCO.",
+        "type": "string-or-null"
+      },
+      "BUSCO_AUGUSTUS_SPECIES": {
+        "default": null,
+        "description": "Optional Augustus species model passed to BUSCO.",
+        "type": "string-or-null"
+      },
+      "BUSCO_BINARIES_PATH": {
+        "default": "busco",
+        "description": "BUSCO executable or command name.",
+        "type": "path-or-command"
+      },
+      "BUSCO_LINEAGE_DIR": {
+        "default": "/path/to/libraries/lineages",
+        "description": "Directory containing BUSCO lineage datasets.",
+        "type": "path"
+      },
+      "BUSCO_METAEUK_PARAMETERS": {
+        "default": null,
+        "description": "Additional raw MetaEuk parameters for BUSCO.",
+        "type": "string-or-null"
+      },
+      "BUSCO_METAEUK_RERUN_PARAMETERS": {
+        "default": null,
+        "description": "Additional raw MetaEuk rerun parameters for BUSCO.",
+        "type": "string-or-null"
+      },
+      "BUSCO_MINIPROT_KEEP_REF_FILE": {
+        "default": false,
+        "description": "Whether BUSCO Miniprot reference files should be retained.",
+        "type": "boolean"
+      },
+      "BUSCO_MINIPROT_PARAMETERS": {
+        "default": null,
+        "description": "Additional raw Miniprot parameters for BUSCO.",
+        "type": "string-or-null"
+      },
+      "CACHE_DIR": {
+        "default": "/path/to/cache",
+        "description": "Shared cache directory for reusable intermediate files.",
+        "type": "path"
+      },
+      "DAEMON_MAX_THREADS": {
+        "default": 1,
+        "description": "Maximum total threads the task daemon may allocate.",
+        "type": "integer"
+      },
+      "DAEMON_PROCESS_POLLING_TIME": {
+        "default": 2,
+        "description": "Seconds between daemon task polling checks.",
+        "type": "number"
+      },
+      "DEFAULT_BUSCO_FORMAT": {
+        "default": "protein",
+        "description": "Default BUSCO input format when one is not supplied.",
+        "type": "string"
+      },
+      "DEFAULT_BUSCO_PIPELINE": {
+        "default": "miniprot",
+        "description": "Default BUSCO pipeline when one is not supplied.",
+        "type": "string"
+      },
+      "DEFAULT_PROTEOME_CDHIT_IDENTITY": {
+        "default": 0.96,
+        "description": "Default CD-HIT identity for automatic proteome preparation.",
+        "type": "number"
+      },
+      "DEFAULT_PROTEOME_CLEAN_ISOFORMS": {
+        "default": true,
+        "description": "Whether automatic proteome preparation should clean isoforms.",
+        "type": "boolean"
+      },
+      "DEFAULT_PROTEOME_GFF_PRIORITY": {
+        "default": false,
+        "description": "Whether GFF-supported isoform choices should be prioritized when preparing proteomes.",
+        "type": "boolean"
+      },
+      "DEFAULT_PROTEOME_INPUT_PROFILE": {
+        "default": "raw",
+        "description": "Default source proteome profile for automatic proteome preparation.",
+        "type": "string"
+      },
+      "DEFAULT_PROTEOME_MAX_CONCURRENT": {
+        "default": 1,
+        "description": "Default maximum concurrent proteome preparation jobs.",
+        "type": "integer"
+      },
+      "DEFAULT_PROTEOME_SET_DEFAULT": {
+        "default": true,
+        "description": "Whether prepared proteomes become the accession default profile.",
+        "type": "boolean"
+      },
+      "DEFAULT_PROTEOME_THREADS_PER_JOB": {
+        "default": 1,
+        "description": "Default threads per proteome preparation job.",
+        "type": "integer"
+      },
+      "DEFAULT_PROTEOME_USE_CDHIT": {
+        "default": false,
+        "description": "Whether automatic proteome preparation uses CD-HIT by default.",
+        "type": "boolean"
+      },
+      "DEFAULT_PROTEOME_USE_GFF": {
+        "default": true,
+        "description": "Whether automatic proteome preparation uses associated GFF files by default.",
+        "type": "boolean"
+      },
+      "DEFAULT_THREADS_<TASK>": {
+        "default": null,
+        "description": "Default required thread count for a registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_ADD_LIBRARY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_ANNOTATE_ORTHOGROUP_TREE": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_BATCH_BUSCO_TASK": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_BATCH_IMPORT_LOCAL_ASSEMBLY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_BUILD_BUSCO_TREES": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_BUSCO_RUN": {
+        "default": 8,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_CONSTRUCT_BUSCO_BLAST_DB": {
+        "default": 4,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_CREATE_PROTEOME_BLAST_DB": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_CREATE_TAXONOMY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_DECONTAMINATION": {
+        "default": 16,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_DOWNLOAD_ASSEMBLIES": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_DOWNLOAD_BUSCO_LIBRARY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_EXAMPLE": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_EXPORT_LIBRARY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_EXTERNAL_DECONTAMINATION_APPLY": {
+        "default": 4,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_EXTERNAL_DECONTAMINATION_CHECK": {
+        "default": 8,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_FINALIZE_GENOME_MOVE": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_GENERATE_LINEAGE_CSV": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_IMPORT_CUSTOM_LIBRARY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_IMPORT_LOCAL_ASSEMBLY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_INTERNAL_DECONTAMINATION": {
+        "default": 16,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_IQTREE_RUN": {
+        "default": 4,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_MAFFT_RUN": {
+        "default": 2,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_ORTHOFINDER_RUN": {
+        "default": 24,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_PARALOG_REMOVAL": {
+        "default": 32,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_PREPARE_PROTEOME": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_SPLIT_RECORDS": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_UPDATE_ASSEMBLY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_VERIFY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_VERIFY_ASSEMBLY": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_VERIFY_BUSCO": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_VERIFY_LIBRARIES": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DEFAULT_THREADS_VERIFY_ORTHOFINDER": {
+        "default": 1,
+        "description": "Default required thread count for this registered task; null falls back to the registry default.",
+        "type": "integer-or-null"
+      },
+      "DIAMOND_PATH": {
+        "default": "diamond",
+        "description": "DIAMOND executable used by translated decontamination checks.",
+        "type": "path-or-command"
+      },
+      "EMAIL": {
+        "default": null,
+        "description": "Email address used for NCBI Entrez requests.",
+        "type": "string-or-null"
+      },
+      "EXPORTS_DIR": {
+        "default": "/path/to/exports",
+        "description": "Default export output directory.",
+        "type": "path"
+      },
+      "GENOME_DIR": {
+        "default": "/path/to/genomes",
+        "description": "Directory used to store downloaded genome/proteome files.",
+        "type": "path"
+      },
+      "IQTREE_FLAGS": {
+        "default": null,
+        "description": "Additional IQ-TREE flags for tree-building tasks.",
+        "type": "string-or-null"
+      },
+      "IQTREE_PATH": {
+        "default": "iqtree2",
+        "description": "IQ-TREE executable used by tree-building tasks.",
+        "type": "path-or-command"
+      },
+      "LAST": {
+        "default": null,
+        "description": "Automatically maintained pointer to the most recent task id.",
+        "type": "integer"
+      },
+      "LAST_<TASK>": {
+        "default": null,
+        "description": "Automatically maintained pointer to the most recent task id for a task family.",
+        "type": "integer"
+      },
+      "LIBRARIES_DIR": {
+        "default": "/path/to/libraries",
+        "description": "Directory used to store PhyloODB libraries.",
+        "type": "path"
+      },
+      "LIST_BUSCO_GRADIENT": {
+        "default": null,
+        "description": "Legacy/default toggle for BUSCO color gradients in list output.",
+        "type": "boolean-or-null"
+      },
+      "LIST_BUSCO_GRADIENT_NEG": {
+        "default": null,
+        "description": "Toggle for negative BUSCO color gradients in list output.",
+        "type": "boolean-or-null"
+      },
+      "LIST_BUSCO_GRADIENT_POS": {
+        "default": null,
+        "description": "Toggle for positive BUSCO color gradients in list output.",
+        "type": "boolean-or-null"
+      },
+      "LIST_BUSCO_NEG_STOPS": {
+        "default": null,
+        "description": "Color stops for negative BUSCO gradients.",
+        "type": "array-or-null"
+      },
+      "LIST_BUSCO_POS_STOPS": {
+        "default": null,
+        "description": "Color stops for positive BUSCO gradients.",
+        "type": "array-or-null"
+      },
+      "LIST_BUSCO_STEEP_MAX": {
+        "default": 20.0,
+        "description": "Maximum delta used for steep BUSCO gradient scaling.",
+        "type": "number"
+      },
+      "LIST_BUSCO_STEEP_STOPS": {
+        "default": null,
+        "description": "Color stops for steep BUSCO gradients.",
+        "type": "array-or-null"
+      },
+      "LIST_GROUP_COLORS": {
+        "default": null,
+        "description": "Group color overrides for list output.",
+        "type": "object-or-null"
+      },
+      "LIST_USE_COLOR": {
+        "default": null,
+        "description": "Whether list output should use color when supported.",
+        "type": "boolean-or-null"
+      },
+      "LOG_BACKUPS": {
+        "default": 5,
+        "description": "Number of rotated log files to keep.",
+        "type": "integer"
+      },
+      "LOG_DIR": {
+        "default": "/path/to/logs",
+        "description": "Directory used for PhyloODB log files.",
+        "type": "path"
+      },
+      "LOG_FILE": {
+        "default": "/path/to/logs/phyloodb.log",
+        "description": "Main PhyloODB log file.",
+        "type": "path"
+      },
+      "LOG_FORMAT": {
+        "default": null,
+        "description": "Optional logging format override.",
+        "type": "string-or-null"
+      },
+      "LOG_HIDE_CATEGORIES_CONSOLE": {
+        "default": null,
+        "description": "Log categories hidden from console output.",
+        "type": "array-or-string-or-null"
+      },
+      "LOG_HIDE_CATEGORIES_FILE": {
+        "default": null,
+        "description": "Log categories hidden from file output.",
+        "type": "array-or-string-or-null"
+      },
+      "LOG_LEVEL": {
+        "default": "DEBUG",
+        "description": "Default logging level.",
+        "type": "string"
+      },
+      "LOG_MAX_BYTES": {
+        "default": 5242880,
+        "description": "Maximum size of a log file before rotation.",
+        "type": "integer"
+      },
+      "LOG_TO_CONSOLE": {
+        "default": false,
+        "description": "Whether normal logging should also be emitted to the console.",
+        "type": "boolean"
+      },
+      "LOG_USE_COLOR": {
+        "default": true,
+        "description": "Whether logging output should use color when supported.",
+        "type": "boolean"
+      },
+      "MAFFT_FLAGS": {
+        "default": null,
+        "description": "Additional MAFFT flags for alignment tasks.",
+        "type": "string-or-null"
+      },
+      "MAFFT_PATH": {
+        "default": "mafft",
+        "description": "MAFFT executable used by alignment tasks.",
+        "type": "path-or-command"
+      },
+      "MAKEBLASTDB_PATH": {
+        "default": "makeblastdb",
+        "description": "makeblastdb executable used when building BLAST databases.",
+        "type": "path-or-command"
+      },
+      "MISC_DIR": {
+        "default": "/path/to/misc",
+        "description": "Directory for miscellaneous derived artifacts.",
+        "type": "path"
+      },
+      "NCBI_API_KEY": {
+        "default": null,
+        "description": "Optional NCBI API key for Entrez requests.",
+        "type": "string-or-null"
+      },
+      "ORTHOFINDER_BINARIES_PATH": {
+        "default": "orthofinder",
+        "description": "OrthoFinder executable or command name.",
+        "type": "path-or-command"
+      },
+      "ORTHOFINDER_OUTPUT_DIR": {
+        "default": "/path/to/orthofinder",
+        "description": "Directory used for OrthoFinder outputs.",
+        "type": "path"
+      },
+      "REPORTS_DIR": {
+        "default": "/path/to/reports",
+        "description": "Directory used for task reports.",
+        "type": "path"
+      },
+      "SELECTOR_BUSCO_BUCKETS": {
+        "default": [
+          [
+            0,
+            -5
+          ],
+          [
+            10,
+            -4
+          ],
+          [
+            20,
+            -3
+          ],
+          [
+            30,
+            -2
+          ],
+          [
+            40,
+            -1
+          ],
+          [
+            50,
+            1
+          ],
+          [
+            60,
+            2
+          ],
+          [
+            70,
+            3
+          ],
+          [
+            80,
+            4
+          ],
+          [
+            90,
+            5
+          ]
+        ],
+        "description": "BUSCO score buckets used by default selector scoring.",
+        "type": "array"
+      },
+      "SELECTOR_DEFAULT_DOWNLOADED_ONLY": {
+        "default": false,
+        "description": "Default selector setting for requiring downloaded assemblies.",
+        "type": "boolean"
+      },
+      "SELECTOR_DEFAULT_PRIMARY_ONLY": {
+        "default": false,
+        "description": "Default selector setting for primary assemblies only.",
+        "type": "boolean"
+      },
+      "SELECTOR_DEFAULT_PROTEIN_ONLY": {
+        "default": false,
+        "description": "Default selector setting for requiring protein data.",
+        "type": "boolean"
+      },
+      "SELECTOR_DEFAULT_STATUS_MIN": {
+        "default": null,
+        "description": "Default minimum assembly status used by selectors.",
+        "type": "integer-or-null"
+      },
+      "SELECTOR_DEFAULT_USE_BUSCO": {
+        "default": false,
+        "description": "Default selector setting for using BUSCO scores.",
+        "type": "boolean"
+      },
+      "SELECTOR_SCORE_ORDER": {
+        "default": [
+          "busco",
+          "refseq",
+          "level",
+          "n50",
+          "date",
+          "accession"
+        ],
+        "description": "Default selector ranking criteria.",
+        "type": "array"
+      },
+      "SET_MAX_THREADS_ON_START": {
+        "default": true,
+        "description": "Refresh detected daemon and task thread defaults at run or daemon startup.",
+        "type": "boolean"
+      }
+    }
+  },
+  "_metadata": {
+    "format": "phyloodb.variables.v1",
+    "source": "docs/variables.example.json"
+  },
+  "assemblies": {
+    "EXAMPLE_ASSEMBLIES": [
+      "GCF_000001405.40"
+    ]
+  },
+  "busco_runs": {
+    "EXAMPLE_BUSCO_RUNS": [
+      101
+    ]
+  },
+  "environment": {
+    "BLASTN_PATH": "blastn",
+    "BLASTP_PATH": "blastp",
+    "BLOCKED_TASK_QUEUE_POLLING_TIME": 2,
+    "BUSCO_AUGUSTUS_EVALUE": null,
+    "BUSCO_AUGUSTUS_LIMIT": 3,
+    "BUSCO_AUGUSTUS_LONG": false,
+    "BUSCO_AUGUSTUS_PARAMETERS": null,
+    "BUSCO_AUGUSTUS_SPECIES": null,
+    "BUSCO_BINARIES_PATH": "busco",
+    "BUSCO_LINEAGE_DIR": "/path/to/libraries/lineages",
+    "BUSCO_METAEUK_PARAMETERS": null,
+    "BUSCO_METAEUK_RERUN_PARAMETERS": null,
+    "BUSCO_MINIPROT_KEEP_REF_FILE": false,
+    "BUSCO_MINIPROT_PARAMETERS": null,
+    "CACHE_DIR": "/path/to/cache",
+    "DAEMON_MAX_THREADS": 112,
+    "DAEMON_PROCESS_POLLING_TIME": 2,
+    "DEFAULT_BUSCO_FORMAT": "protein",
+    "DEFAULT_BUSCO_PIPELINE": "miniprot",
+    "DEFAULT_PROTEOME_CDHIT_IDENTITY": 0.96,
+    "DEFAULT_PROTEOME_CLEAN_ISOFORMS": true,
+    "DEFAULT_PROTEOME_GFF_PRIORITY": false,
+    "DEFAULT_PROTEOME_INPUT_PROFILE": "raw",
+    "DEFAULT_PROTEOME_MAX_CONCURRENT": 1,
+    "DEFAULT_PROTEOME_SET_DEFAULT": true,
+    "DEFAULT_PROTEOME_THREADS_PER_JOB": 1,
+    "DEFAULT_PROTEOME_USE_CDHIT": false,
+    "DEFAULT_PROTEOME_USE_GFF": true,
+    "DEFAULT_THREADS_ADD_LIBRARY": 1,
+    "DEFAULT_THREADS_ANNOTATE_ORTHOGROUP_TREE": 1,
+    "DEFAULT_THREADS_BATCH_BUSCO_TASK": 1,
+    "DEFAULT_THREADS_BATCH_IMPORT_LOCAL_ASSEMBLY": 1,
+    "DEFAULT_THREADS_BUILD_BUSCO_TREES": 1,
+    "DEFAULT_THREADS_BUSCO_RUN": 8,
+    "DEFAULT_THREADS_CONSTRUCT_BUSCO_BLAST_DB": 4,
+    "DEFAULT_THREADS_CREATE_PROTEOME_BLAST_DB": 1,
+    "DEFAULT_THREADS_CREATE_TAXONOMY": 1,
+    "DEFAULT_THREADS_DECONTAMINATION": 16,
+    "DEFAULT_THREADS_DOWNLOAD_ASSEMBLIES": 1,
+    "DEFAULT_THREADS_DOWNLOAD_BUSCO_LIBRARY": 1,
+    "DEFAULT_THREADS_EXAMPLE": 1,
+    "DEFAULT_THREADS_EXPORT_LIBRARY": 1,
+    "DEFAULT_THREADS_EXTERNAL_DECONTAMINATION_APPLY": 4,
+    "DEFAULT_THREADS_EXTERNAL_DECONTAMINATION_CHECK": 8,
+    "DEFAULT_THREADS_FINALIZE_GENOME_MOVE": 1,
+    "DEFAULT_THREADS_GENERATE_LINEAGE_CSV": 1,
+    "DEFAULT_THREADS_IMPORT_CUSTOM_LIBRARY": 1,
+    "DEFAULT_THREADS_IMPORT_LOCAL_ASSEMBLY": 1,
+    "DEFAULT_THREADS_INTERNAL_DECONTAMINATION": 16,
+    "DEFAULT_THREADS_IQTREE_RUN": 4,
+    "DEFAULT_THREADS_MAFFT_RUN": 2,
+    "DEFAULT_THREADS_ORTHOFINDER_RUN": 24,
+    "DEFAULT_THREADS_PARALOG_REMOVAL": 32,
+    "DEFAULT_THREADS_PREPARE_PROTEOME": 1,
+    "DEFAULT_THREADS_SPLIT_RECORDS": 1,
+    "DEFAULT_THREADS_UPDATE_ASSEMBLY": 1,
+    "DEFAULT_THREADS_VERIFY": 1,
+    "DEFAULT_THREADS_VERIFY_ASSEMBLY": 1,
+    "DEFAULT_THREADS_VERIFY_BUSCO": 1,
+    "DEFAULT_THREADS_VERIFY_LIBRARIES": 1,
+    "DEFAULT_THREADS_VERIFY_ORTHOFINDER": 1,
+    "DIAMOND_PATH": "diamond",
+    "EMAIL": null,
+    "EXPORTS_DIR": "/path/to/exports",
+    "GENOME_DIR": "/path/to/genomes",
+    "IQTREE_FLAGS": null,
+    "IQTREE_PATH": "iqtree2",
+    "LAST": null,
+    "LIBRARIES_DIR": "/path/to/libraries",
+    "LIST_BUSCO_GRADIENT": null,
+    "LIST_BUSCO_GRADIENT_NEG": null,
+    "LIST_BUSCO_GRADIENT_POS": null,
+    "LIST_BUSCO_NEG_STOPS": null,
+    "LIST_BUSCO_POS_STOPS": null,
+    "LIST_BUSCO_STEEP_MAX": 20.0,
+    "LIST_BUSCO_STEEP_STOPS": null,
+    "LIST_GROUP_COLORS": null,
+    "LIST_USE_COLOR": null,
+    "LOG_BACKUPS": 5,
+    "LOG_DIR": "/path/to/logs",
+    "LOG_FILE": "/path/to/logs/phyloodb.log",
+    "LOG_FORMAT": null,
+    "LOG_HIDE_CATEGORIES_CONSOLE": null,
+    "LOG_HIDE_CATEGORIES_FILE": null,
+    "LOG_LEVEL": "DEBUG",
+    "LOG_MAX_BYTES": 5242880,
+    "LOG_TO_CONSOLE": false,
+    "LOG_USE_COLOR": true,
+    "MAFFT_FLAGS": null,
+    "MAFFT_PATH": "mafft",
+    "MAKEBLASTDB_PATH": "makeblastdb",
+    "MISC_DIR": "/path/to/misc",
+    "NCBI_API_KEY": null,
+    "ORTHOFINDER_BINARIES_PATH": "orthofinder",
+    "ORTHOFINDER_OUTPUT_DIR": "/path/to/orthofinder",
+    "REPORTS_DIR": "/path/to/reports",
+    "SELECTOR_BUSCO_BUCKETS": [
+      [
+        0,
+        -5
+      ],
+      [
+        10,
+        -4
+      ],
+      [
+        20,
+        -3
+      ],
+      [
+        30,
+        -2
+      ],
+      [
+        40,
+        -1
+      ],
+      [
+        50,
+        1
+      ],
+      [
+        60,
+        2
+      ],
+      [
+        70,
+        3
+      ],
+      [
+        80,
+        4
+      ],
+      [
+        90,
+        5
+      ]
+    ],
+    "SELECTOR_DEFAULT_DOWNLOADED_ONLY": false,
+    "SELECTOR_DEFAULT_PRIMARY_ONLY": false,
+    "SELECTOR_DEFAULT_PROTEIN_ONLY": false,
+    "SELECTOR_DEFAULT_STATUS_MIN": null,
+    "SELECTOR_DEFAULT_USE_BUSCO": false,
+    "SELECTOR_SCORE_ORDER": [
+      "busco",
+      "refseq",
+      "level",
+      "n50",
+      "date",
+      "accession"
+    ],
+    "SET_MAX_THREADS_ON_START": true
+  }
+}

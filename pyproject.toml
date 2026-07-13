@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phyloODB"
+version = "0.2.0"
+description = "Phylogenetic Ortholog Database tooling with a registry-driven task system."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Morgan A. S. Jones", email = "morgan.jones@bristol.ac.uk" },
+]
+dependencies = [
+  "biopython>=1.78",
+  "ete3>=3.1.3",
+  "pydantic>=2.0,<3.0",
+  "pyyaml>=6.0",
+  "rich>=10.0",
+  "tomli>=2.0; python_version < '3.11'",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.scripts]
+phyloODB = "phyloODB:main"
+phyloODB-daemon = "phyloODB.cli.daemon:main"
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2.0",
+  "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["phyloODB*"]

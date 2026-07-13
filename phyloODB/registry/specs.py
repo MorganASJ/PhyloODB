@@ -1,0 +1,413 @@
+"""Built-in TaskSpec definitions for the core PhyloODB tasks."""
+from __future__ import annotations
+
+from typing import Iterable
+
+from ..tasks import (
+    AddLibraryTask,
+    ImportCustomLibraryTask,
+    BuscoTask,
+    CreateTaxonomyDB,
+    DownloadAssembliesTask,
+    DownloadBuscoLibraryTask,
+    ExampleTask,
+    ExportLibraryTask,
+    FinalizeGenomeMoveTask,
+    GenerateLineageCsvTask,
+    ImportLocalAssemblyTask,
+    OrthoFinderTask,
+    UpdateAssemblyInformation,
+    CreateProteomeBlastDB,
+    ParalogRemovalTask,
+    BatchBuscoTask,
+    Decontamination,
+    InternalDecontaminationTask,
+    ExternalDecontaminationCheckTask,
+    ExternalDecontaminationApplyTask,
+    ConstructBuscoBlastDB,
+    MafftTask,
+    IQTreeTask,
+    BuildBuscoTreesTask,
+    AnnotateOrthogroupTreeTask,
+    VerifyTask,
+    VerifyAssemblyTask,
+    VerifyBuscoTask,
+    VerifyLibrariesTask,
+    VerifyOrthofinderTask,
+    SplitRecordsTask,
+    BatchImportLocalAssemblyTask,
+    PrepareProteomeTask,
+)
+from ..schemas import DaemonConfig
+from ..schemas.tasks import (
+    AddLibraryPayload,
+    ImportCustomLibraryPayload,
+    BatchImportLocalAssemblyTaskPayload,
+    BuscoTaskPayload,
+    CreateTaxonomyPayload,
+    DownloadAssembliesPayload,
+    DownloadBuscoLibraryPayload,
+    ExportLibraryPayload,
+    ExampleTaskPayload,
+    FinalizeGenomeMovePayload,
+    GenerateLineageCsvPayload,
+    ImportLocalAssemblyPayload,
+    OrthoFinderPayload,
+    UpdateAssemblyInformationPayload,
+    CreateProteomeBlastDBPayload,
+    ParalogRemovalPayload,
+    BatchBuscoTaskPayload,
+    DecontaminationPayload,
+    InternalDecontaminationPayload,
+    ExternalDecontaminationCheckPayload,
+    ExternalDecontaminationApplyPayload,
+    ConstructBuscoBlastDBPayload,
+    MafftRunPayload,
+    IQTreeRunPayload,
+    BuildBuscoTreesPayload,
+    AnnotateOrthogroupTreePayload,
+    VerifyPayload,
+    VerifyAssemblyPayload,
+    VerifyBuscoPayload,
+    VerifyLibrariesPayload,
+    VerifyOrthofinderPayload,
+    SplitRecordsPayload,
+    PrepareProteomePayload,
+)
+from .spec import TaskSpec
+
+
+def builtin_task_specs() -> Iterable[TaskSpec]:
+    yield TaskSpec(
+        job_type=1,
+        key="update-assembly",
+        task_cls=UpdateAssemblyInformation,
+        payload_model=UpdateAssemblyInformationPayload,
+        description="Fetch and insert assembly metadata for accessions or a taxid.",
+        aliases=("add", "update-assembly-info"),
+        daemon=DaemonConfig(required_threads=1, description="Metadata harvesting"),
+        metadata={"selectors": {"auto_expand_taxid_accessions": False}},
+    )
+    yield TaskSpec(
+        job_type=2,
+        key="download-assemblies",
+        task_cls=DownloadAssembliesTask,
+        payload_model=DownloadAssembliesPayload,
+        description="Download genome assemblies to the configured genome directory.",
+        aliases=("download",),
+        daemon=DaemonConfig(required_threads=1, description="NCBI downloads"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=3,
+        key="add-library",
+        task_cls=AddLibraryTask,
+        payload_model=AddLibraryPayload,
+        description="Create a derived orthology library from reference accessions.",
+        aliases=("library-add",),
+        daemon=DaemonConfig(required_threads=1, description="Composite library orchestration"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=4,
+        key="busco-run",
+        task_cls=BuscoTask,
+        payload_model=BuscoTaskPayload,
+        description="Run BUSCO against a downloaded proteome.",
+        aliases=("busco",),
+        daemon=DaemonConfig(required_threads=8, description="BUSCO analysis"),
+        metadata={"selectors": {"status_min": 1}},
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=5,
+        key="orthofinder-run",
+        task_cls=OrthoFinderTask,
+        payload_model=OrthoFinderPayload,
+        description="Execute an OrthoFinder analysis across proteomes.",
+        aliases=("orthofinder",),
+        daemon=DaemonConfig(required_threads=64, description="OrthoFinder analysis"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=6,
+        key="download-busco-library",
+        task_cls=DownloadBuscoLibraryTask,
+        payload_model=DownloadBuscoLibraryPayload,
+        description="Download and register a BUSCO lineage dataset.",
+        aliases=("busco-download",),
+        daemon=DaemonConfig(required_threads=1, description="BUSCO library downloads"),
+    )
+    yield TaskSpec(
+        job_type=7,
+        key="import-local-assembly",
+        task_cls=ImportLocalAssemblyTask,
+        payload_model=ImportLocalAssemblyPayload,
+        description="Import a locally stored assembly into the database.",
+        aliases=("import-local",),
+        daemon=DaemonConfig(required_threads=1, description="Local assembly import"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=8,
+        key="create-taxonomy",
+        task_cls=CreateTaxonomyDB,
+        payload_model=CreateTaxonomyPayload,
+        description="Populate the taxonomy tables from an NCBI taxdump.",
+        aliases=("taxonomy",),
+        daemon=DaemonConfig(required_threads=1, description="Taxdump ingestion"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=9,
+        key="export-library",
+        task_cls=ExportLibraryTask,
+        payload_model=ExportLibraryPayload,
+        description="Export BUSCO family datasets for a library or taxid selection.",
+        aliases=("export",),
+        daemon=DaemonConfig(required_threads=1, description="Dataset export"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=10,
+        key="example",
+        task_cls=ExampleTask,
+        payload_model=ExampleTaskPayload,
+        description="Demonstration no-op task.",
+        aliases=("demo",),
+        daemon=DaemonConfig(required_threads=1, description="Example task"),
+        task_builder=lambda db_path, task_id, data_json, *, required_threads, checkpoint=None: ExampleTask(
+            db_path,
+            task_id,
+            required_threads=required_threads,
+        ),
+    )
+    yield TaskSpec(
+        job_type=11,
+        key="generate-lineage-csv",
+        task_cls=GenerateLineageCsvTask,
+        payload_model=GenerateLineageCsvPayload,
+        description="Resolve selectors to accessions and export their lineage information to CSV.",
+        aliases=("lineage-csv",),
+        daemon=DaemonConfig(required_threads=1, description="Lineage CSV export"),
+    )
+    yield TaskSpec(
+        job_type=30,
+        key="finalize-genome-move",
+        task_cls=FinalizeGenomeMoveTask,
+        payload_model=FinalizeGenomeMovePayload,
+        description="Finalize a genome move by copying/rebinding, verifying, and deleting the original source on success.",
+        aliases=("storage-finalize-genome-move",),
+        daemon=DaemonConfig(required_threads=1, description="Genome move finalization"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=12,
+        key="batch-import-local-assembly",
+        task_cls=BatchImportLocalAssemblyTask,
+        payload_model=BatchImportLocalAssemblyTaskPayload,
+        description="Import multiple locally stored assemblies into the database from a directory.",
+        aliases=("batch-import-local", "batch-import"),
+        daemon=DaemonConfig(required_threads=1, description="Batch local assembly import"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=13,
+        key="create-proteome-blast-db",
+        task_cls=CreateProteomeBlastDB,
+        payload_model=CreateProteomeBlastDBPayload,
+        description="Create a BLAST database from a set of protein sequences.",
+        aliases=("blast-db", "create-blast-db"),
+        daemon=DaemonConfig(required_threads=1, description="BLAST database creation"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=14,
+        key="paralog-removal",
+        task_cls=ParalogRemovalTask,
+        payload_model=ParalogRemovalPayload,
+        description="Remove paralogous sequences from a set of proteomes based on reference accessions.",
+        aliases=("paralog-removal", "remove-paralogs", "paralog-filtering", "filter-paralogs"),
+        daemon=DaemonConfig(required_threads=32, description="Paralog removal"),
+        metadata={"selectors": {"require_busco_results": True}},
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=15,
+        key="BatchBuscoTask",
+        task_cls=BatchBuscoTask,
+        payload_model=BatchBuscoTaskPayload,
+        description="Run BUSCO against a batch of downloaded proteomes.",
+        aliases=("batch-busco",),
+        daemon=DaemonConfig(required_threads=16, description="Batch BUSCO analysis"),
+        metadata={"selectors": {"status_min": 1}},
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=17,
+        key="construct-busco-blast-db",
+        task_cls=ConstructBuscoBlastDB,
+        payload_model=ConstructBuscoBlastDBPayload,
+        description="Create a BLAST database from BUSCO sequences for given accessions.",
+        aliases=("busco-blast-db",),
+        daemon=DaemonConfig(required_threads=4, description="BUSCO BLAST DB creation"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=16,
+        key="decontamination",
+        task_cls=Decontamination,
+        payload_model=DecontaminationPayload,
+        description="Flag assemblies whose BUSCO top hits fall outside the expected taxon.",
+        aliases=("decontam",),
+        daemon=DaemonConfig(required_threads=16, description="Decontamination screening"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=22,
+        key="internal-decontamination",
+        task_cls=InternalDecontaminationTask,
+        payload_model=InternalDecontaminationPayload,
+        description="Internal BUSCO consistency screen using hypergeometric enrichment within the target set.",
+        aliases=("internal-decontam", "idc"),
+        daemon=DaemonConfig(required_threads=16, description="Internal decontamination screening"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=23,
+        key="external-decontamination-check",
+        task_cls=ExternalDecontaminationCheckTask,
+        payload_model=ExternalDecontaminationCheckPayload,
+        description="Run external BLAST checks for BUSCOs flagged outside in an internal decontamination run.",
+        aliases=("external-decontam-check", "external-decontam"),
+        daemon=DaemonConfig(required_threads=8, description="External decontamination BLAST"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=24,
+        key="external-decontamination-apply",
+        task_cls=ExternalDecontaminationApplyTask,
+        payload_model=ExternalDecontaminationApplyPayload,
+        description="Apply external decontamination results to a prior run and write under a new run_id.",
+        aliases=("external-decontam-apply", "external-decontam-update"),
+        daemon=DaemonConfig(required_threads=4, description="External decontamination apply"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=27,
+        key="verify",
+        task_cls=VerifyTask,
+        payload_model=VerifyPayload,
+        description="Run the full verification suite across assemblies, libraries, BUSCO runs, and OrthoFinder runs.",
+        aliases=("verify",),
+        daemon=DaemonConfig(required_threads=1, description="Verification orchestration"),
+        requires_checkpoint=True,
+        metadata={"selector_profile": "verify_master"},
+    )
+    yield TaskSpec(
+        job_type=18,
+        key="verify-assembly",
+        task_cls=VerifyAssemblyTask,
+        payload_model=VerifyAssemblyPayload,
+        description="Verify assemblies for artifact presence, gzip integrity, and usable downloaded state.",
+        aliases=("verify-downloads", "verify-genomes", "verify-assembly", "verify-accession"),
+        daemon=DaemonConfig(required_threads=1, description="Assembly verification"),
+        requires_checkpoint=True,
+        metadata={"selector_profile": "assembly"},
+    )
+    yield TaskSpec(
+        job_type=19,
+        key="split-records",
+        task_cls=SplitRecordsTask,
+        payload_model=SplitRecordsPayload,
+        description="Split multiple fasta files in a genome folder into new accessions.",
+        aliases=("split-records",),
+        daemon=DaemonConfig(required_threads=1, description="Split genome records"),
+    )
+    yield TaskSpec(
+        job_type=20,
+        key="verify-busco",
+        task_cls=VerifyBuscoTask,
+        payload_model=VerifyBuscoPayload,
+        description="Verify BUSCO results: re-ingest existing outputs, discover missing DB entries, and optionally queue missing runs.",
+        aliases=("verify-busco",),
+        daemon=DaemonConfig(required_threads=1, description="BUSCO verification"),
+        metadata={"selector_profile": "busco"},
+    )
+    yield TaskSpec(
+        job_type=28,
+        key="verify-libraries",
+        task_cls=VerifyLibrariesTask,
+        payload_model=VerifyLibrariesPayload,
+        description="Verify lineage and derived libraries, backfilling core library artifacts and stale state.",
+        aliases=("verify-libraries", "verify-library"),
+        daemon=DaemonConfig(required_threads=1, description="Library verification"),
+        requires_checkpoint=True,
+        metadata={"selector_profile": "library_only"},
+    )
+    yield TaskSpec(
+        job_type=29,
+        key="verify-orthofinder",
+        task_cls=VerifyOrthofinderTask,
+        payload_model=VerifyOrthofinderPayload,
+        description="Verify OrthoFinder runs, backfill artifacts, and mark broken runs unusable.",
+        aliases=("verify-orthofinder",),
+        daemon=DaemonConfig(required_threads=1, description="OrthoFinder verification"),
+        requires_checkpoint=True,
+        metadata={"selector_profile": "orthofinder_only"},
+    )
+    yield TaskSpec(
+        job_type=21,
+        key="import-custom-library",
+        task_cls=ImportCustomLibraryTask,
+        payload_model=ImportCustomLibraryPayload,
+        description="Register a custom BUSCO library from a pre-selected family list.",
+        aliases=("custom-library", "library-import"),
+        daemon=DaemonConfig(required_threads=1, description="Custom library import"),
+    )
+    yield TaskSpec(
+        job_type=31,
+        key="prepare-proteome",
+        task_cls=PrepareProteomeTask,
+        payload_model=PrepareProteomePayload,
+        description="Create an immutable derived proteome profile from a raw proteome using GFF and/or CD-HIT.",
+        aliases=("proteome-prepare",),
+        daemon=DaemonConfig(required_threads=1, description="Proteome preparation"),
+    )
+    yield TaskSpec(
+        job_type=32,
+        key="mafft-run",
+        task_cls=MafftTask,
+        payload_model=MafftRunPayload,
+        description="Align a FASTA with MAFFT and write one aligned FASTA.",
+        aliases=("mafft",),
+        daemon=DaemonConfig(required_threads=2, description="MAFFT alignment"),
+    )
+    yield TaskSpec(
+        job_type=33,
+        key="iqtree-run",
+        task_cls=IQTreeTask,
+        payload_model=IQTreeRunPayload,
+        description="Run IQ-TREE on one alignment and write a rooted results directory.",
+        aliases=("iqtree", "tree-run"),
+        daemon=DaemonConfig(required_threads=4, description="IQ-TREE phylogeny"),
+    )
+    yield TaskSpec(
+        job_type=34,
+        key="build-busco-trees",
+        task_cls=BuildBuscoTreesTask,
+        payload_model=BuildBuscoTreesPayload,
+        description="Export BUSCO family FASTAs for selected taxa, then run MAFFT and IQ-TREE per family.",
+        aliases=("busco-trees",),
+        daemon=DaemonConfig(required_threads=1, description="BUSCO family tree building"),
+        requires_checkpoint=True,
+    )
+    yield TaskSpec(
+        job_type=35,
+        key="annotate-orthogroup-tree",
+        task_cls=AnnotateOrthogroupTreeTask,
+        payload_model=AnnotateOrthogroupTreePayload,
+        description="Annotate one orthogroup tree or a folder of trees using BUSCO/paralogy metadata.",
+        aliases=("annotate-tree", "annotate-og-tree"),
+        daemon=DaemonConfig(required_threads=1, description="Orthogroup tree annotation"),
+    )
