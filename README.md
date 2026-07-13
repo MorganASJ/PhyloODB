@@ -2,6 +2,13 @@
 
 Phylogenetic Ortholog Database tooling with a registry-driven task system.
 
+- [Manual](docs/MANUAL.md) – comprehensive user guide covering concepts,
+  queueing, storage, recovery, filtering, and export.
+- [Quickstart](docs/QUICKSTART.md) – first-run handbook for getting from an
+  empty database to a basic export quickly.
+
+RTFM
+
 ## Installation
 
 PhyloODB is a Python package, but full end-to-end analyses also require
@@ -57,11 +64,10 @@ python -m build
 
 ## Documentation
 
-- [Wiki home](docs/WIKI/Home.md) – GitHub-wiki-ready end-user documentation organised by topic.
-- [Quickstart](docs/QUICKSTART.md) – first-run handbook for getting from an
-  empty database to a basic export quickly.
 - [Manual](docs/MANUAL.md) – comprehensive user guide covering concepts,
   queueing, storage, recovery, filtering, and export.
+- [Quickstart](docs/QUICKSTART.md) – first-run handbook for getting from an
+  empty database to a basic export quickly.
 - [Command reference](docs/COMMAND_REFERENCE.md) – compact command and task
   lookup reference.
 - [Mammal tutorial](tutorial/README.md) – worked end-to-end mammal example with
