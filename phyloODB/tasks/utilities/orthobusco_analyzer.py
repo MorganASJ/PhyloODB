@@ -1082,21 +1082,3 @@ class OrthoBuscoAnalyzer:
 
         # Return BUSCO families list as requested
         return good_families
-    
-if __name__ == "__main__":
-    # for testing remove the ./tmp first
-    if os.path.exists("./tmp"):
-        shutil.rmtree("./tmp")
-    analyzer = OrthoBuscoAnalyzer(
-        "test",
-        "./tmp",
-        "/home/ql22514/PhyloODB/phyloODB/orthofinder/2_Mingzhu"
-    )
-
-    mingzhu_accessions = ["AMIL_2024", "AQUE_2024", "ACAL_2024", "CTEL_2024", "CINT_2024", "HHON_2024", "MLEY_2024", "PCAU_2024", "SDOL_2024", "SPIZ_2024", "STRO_2024", "TCAS_2024"]
-    get_busco_paths = lambda acc: glob.glob(f"./genomes/{acc}/metazoa_odb12_results")
-    paths = [p for acc in mingzhu_accessions for p in get_busco_paths(acc)]
-    print(paths)
-
-    analyzer.transform_busco_results(paths, out_dir=None, update=True, force=True)
-    analyzer.compare_busco_orthofinder(min_species_in_trees=4)
