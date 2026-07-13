@@ -57,11 +57,12 @@ python -m build
 
 ## Documentation
 
-- `docs/WIKI/Home.md` – GitHub-wiki-ready end-user documentation organised by topic.
-- `docs/QUICKSTART.md` – first-run handbook for getting from an empty database
-  to a basic export quickly.
-- `docs/MANUAL.md` – comprehensive user guide covering concepts, queueing,
-  storage, recovery, filtering, and export.
-- `docs/COMMAND_REFERENCE.md` – compact command and task lookup reference.
-- `tutorial/README.md` – worked end-to-end mammal example with queue-driven
-  commands.
+- [Wiki home](docs/WIKI/Home.md) – GitHub-wiki-ready end-user documentation organised by topic.
+- [Quickstart](docs/QUICKSTART.md) – first-run handbook for getting from an
+  empty database to a basic export quickly.
+- [Manual](docs/MANUAL.md) – comprehensive user guide covering concepts,
+  queueing, storage, recovery, filtering, and export.
+- [Command reference](docs/COMMAND_REFERENCE.md) – compact command and task
+  lookup reference.
+- [Mammal tutorial](tutorial/README.md) – worked end-to-end mammal example with
+  queue-driven commands.
