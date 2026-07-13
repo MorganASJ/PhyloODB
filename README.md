@@ -71,4 +71,4 @@ python -m build
 - [Command reference](docs/COMMAND_REFERENCE.md) – compact command and task
   lookup reference.
 - [Mammal tutorial](tutorial/README.md) – worked end-to-end mammal example with
-  queue-driven commands.
+  serial `run` commands.

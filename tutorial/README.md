@@ -2,25 +2,18 @@
 
 This tutorial is a worked example of how one might use PhyloODB to construct a conservative mammalian dataset with a strong primate component. It is based conceptually on `tests/chimp_example.sh`, but it is written as a user-facing walkthrough rather than as a smoke test. The aim is not merely to obtain chimpanzee data, but to build a reusable and inspectable mammal project in which primates are represented densely and more distant mammalian outgroups are included to stabilise orthology and downstream export.
 
-Use this tutorial for: a worked end-to-end example. If you want the shortest first-run guide, use [docs/QUICKSTART.md](../docs/QUICKSTART.md). If you want the full handbook, use [docs/MANUAL.md](../docs/MANUAL.md). If you want exact command lookup, use [docs/COMMAND_REFERENCE.md](../docs/COMMAND_REFERENCE.md).
+Use this tutorial for: a worked end-to-end example. A runnable notebook version
+is available at
+[tutorial/chimp_mammal_core_example.ipynb](chimp_mammal_core_example.ipynb).
+If you want the shortest first-run guide, use
+[docs/QUICKSTART.md](../docs/QUICKSTART.md). If you want the full handbook, use
+[docs/MANUAL.md](../docs/MANUAL.md). If you want exact command lookup, use
+[docs/COMMAND_REFERENCE.md](../docs/COMMAND_REFERENCE.md).
 
-This tutorial uses `queue` on purpose so the project state stays explicit and reusable. That also means queued tasks do not run by themselves. Start a daemon in another terminal before or during the queueing sequence:
-
-```bash
-phyloODB-daemon mammal_tutorial.db start --here --log-console --log-level INFO
-```
-
-Or run it in the background:
-
-```bash
-phyloODB-daemon mammal_tutorial.db start --background
-```
-
-When you are done queueing work, stop it cleanly with:
-
-```bash
-phyloODB-daemon mammal_tutorial.db stop --drain
-```
+This tutorial uses `run` commands so each stage executes before the next one is
+started. That makes the walkthrough easier to follow in a terminal or notebook.
+For larger production datasets, you may want to adapt the same task sequence to
+your preferred batch or scheduler workflow.
 
 [Figure placeholder: tutorial overview showing primate core, mammalian outgroups, derived library, paralog removal, decontamination, and export.]
 
@@ -76,12 +69,12 @@ At this point you have an empty project database. Everything that follows is att
 The first active stage is to tell PhyloODB what assemblies exist for the clades of interest. We begin with Primates and then add a small set of broader mammalian outgroups.
 
 ```bash
-phyloODB mammal_tutorial.db queue add --clade Primates
-phyloODB mammal_tutorial.db queue add --clade Rodentia
-phyloODB mammal_tutorial.db queue add --clade Carnivora
-phyloODB mammal_tutorial.db queue add --clade Artiodactyla
-phyloODB mammal_tutorial.db queue add --clade Marsupialia
-phyloODB mammal_tutorial.db queue add --clade Monotremata
+phyloODB mammal_tutorial.db run add --clade Primates
+phyloODB mammal_tutorial.db run add --clade Rodentia
+phyloODB mammal_tutorial.db run add --clade Carnivora
+phyloODB mammal_tutorial.db run add --clade Artiodactyla
+phyloODB mammal_tutorial.db run add --clade Marsupialia
+phyloODB mammal_tutorial.db run add --clade Monotremata
 ```
 
 This does not download sequence files. It populates the database with assembly metadata so that selectors can be used intelligently.
@@ -91,13 +84,11 @@ This does not download sequence files. It populates the database with assembly m
 We want a broad metazoan lineage available, but for this tutorial the main working lineage is mammalian.
 
 ```bash
-phyloODB mammal_tutorial.db queue download-busco-library --lineage metazoa_odb12 --coverage 1
-phyloODB mammal_tutorial.db queue --schedule succeeded:LAST download-busco-library --lineage mammalia_odb12 --coverage 1
+phyloODB mammal_tutorial.db run download-busco-library --lineage metazoa_odb12 --coverage 1
+phyloODB mammal_tutorial.db run download-busco-library --lineage mammalia_odb12 --coverage 1
 ```
 
-The scheduling here is not strictly required if both libraries are already present, but it illustrates the intended queue model.
-
-At this point it is reasonable to start the daemon if it is not already running. The rest of the tutorial assumes queued tasks will actually be processed.
+If both libraries are already present, these commands should complete quickly.
 
 ## 6. Inspect primate assemblies
 
@@ -178,7 +169,7 @@ From this point onward, `@MAMMAL_TARGETS` is the main target panel for BUSCO, fi
 Download the reference panel first. This is the panel on which the derived library will depend.
 
 ```bash
-phyloODB mammal_tutorial.db queue download --accessions @PRIMATE_REFS,@RODENT_OUTGROUPS,@CARNIVORE_OUTGROUPS,@UNGULATE_OUTGROUPS,@MARSUPIAL_OUTGROUPS,@MONOTREME_OUTGROUPS --protein
+phyloODB mammal_tutorial.db run download --accessions @PRIMATE_REFS,@RODENT_OUTGROUPS,@CARNIVORE_OUTGROUPS,@UNGULATE_OUTGROUPS,@MARSUPIAL_OUTGROUPS,@MONOTREME_OUTGROUPS --protein
 ```
 
 Then inspect what has been downloaded.
@@ -190,7 +181,7 @@ phyloODB mammal_tutorial.db count assemblies --accessions @PRIMATE_REFS,@RODENT_
 After the references, download the denser primate target panel.
 
 ```bash
-phyloODB mammal_tutorial.db queue download --accessions @MAMMAL_TARGETS --protein
+phyloODB mammal_tutorial.db run download --accessions @MAMMAL_TARGETS --protein
 ```
 
 If proteome hygiene is a concern, isoform cleaning can either be handled during download or explicitly later using `clean-isoforms`.
@@ -200,13 +191,13 @@ If proteome hygiene is a concern, isoform cleaning can either be handled during 
 It is often worthwhile to verify file integrity before large analyses.
 
 ```bash
-phyloODB mammal_tutorial.db queue verify-downloads --accessions @MAMMAL_TARGETS,@PRIMATE_REFS --downloaded-only
+phyloODB mammal_tutorial.db run verify-downloads --accessions @MAMMAL_TARGETS,@PRIMATE_REFS --downloaded-only
 ```
 
 If needed, clean isoforms explicitly.
 
 ```bash
-phyloODB mammal_tutorial.db queue clean-isoforms --accessions @MAMMAL_TARGETS,@PRIMATE_REFS --downloaded-only
+phyloODB mammal_tutorial.db run clean-isoforms --accessions @MAMMAL_TARGETS,@PRIMATE_REFS --downloaded-only
 ```
 
 These steps are not conceptually glamorous, but they reduce the risk that later BUSCO or BLAST stages are distorted by file corruption or redundant isoform structure.
@@ -216,12 +207,12 @@ These steps are not conceptually glamorous, but they reduce the risk that later 
 The mammalian BUSCO library is now used to profile the panels.
 
 ```bash
-phyloODB mammal_tutorial.db queue batch-busco \
+phyloODB mammal_tutorial.db run batch-busco \
   --accessions @PRIMATE_REFS,@RODENT_OUTGROUPS,@CARNIVORE_OUTGROUPS,@UNGULATE_OUTGROUPS,@MARSUPIAL_OUTGROUPS,@MONOTREME_OUTGROUPS \
   --lineage mammalia_odb12 \
   --format protein
 
-phyloODB mammal_tutorial.db queue batch-busco \
+phyloODB mammal_tutorial.db run batch-busco \
   --accessions @MAMMAL_TARGETS \
   --lineage mammalia_odb12 \
   --format protein
@@ -245,7 +236,7 @@ This stage often leads the user to refine the target set. Poor assemblies can be
 This is the defining step of the tutorial. We now construct a derived library using the reference panel. The reference panel is not simply a list of taxa to keep later. It is the empirical basis for deciding which BUSCO families behave well enough across Mammalia to serve as a conservative core set.
 
 ```bash
-phyloODB mammal_tutorial.db queue add-library \
+phyloODB mammal_tutorial.db run add-library \
   --name mammal_core_odb12 \
   --coverage Mammalia \
   --parent-library-name mammalia_odb12 \
@@ -277,7 +268,7 @@ The reason for building a derived library at this stage is that the parent BUSCO
 With the library in place, apply hidden paralog filtering to the target panel using the same broad reference panel.
 
 ```bash
-phyloODB mammal_tutorial.db queue paralog-removal \
+phyloODB mammal_tutorial.db run paralog-removal \
   --library-name mammal_core_odb12 \
   --ref-accessions @PRIMATE_REFS,@RODENT_OUTGROUPS,@CARNIVORE_OUTGROUPS,@UNGULATE_OUTGROUPS,@MARSUPIAL_OUTGROUPS,@MONOTREME_OUTGROUPS \
   --accessions @MAMMAL_TARGETS \
@@ -301,7 +292,7 @@ PhyloODB provides two relevant approaches for this tutorial.
 This is often the most natural first pass for a coherent target set.
 
 ```bash
-phyloODB mammal_tutorial.db queue internal-decontamination \
+phyloODB mammal_tutorial.db run internal-decontamination \
   --library-name mammal_core_odb12 \
   --targets @MAMMAL_TARGETS \
   --rank order \
@@ -317,7 +308,7 @@ Conceptually, the target set is compared against itself using BUSCO-derived sequ
 A second option is explicit reference-based decontamination using the broader mammalian reference panel.
 
 ```bash
-phyloODB mammal_tutorial.db queue decontamination \
+phyloODB mammal_tutorial.db run decontamination \
   --library-name mammal_core_odb12 \
   --targets @MAMMAL_TARGETS \
   --refs @PRIMATE_REFS,@RODENT_OUTGROUPS,@CARNIVORE_OUTGROUPS,@UNGULATE_OUTGROUPS,@MARSUPIAL_OUTGROUPS,@MONOTREME_OUTGROUPS \
@@ -334,12 +325,12 @@ This route is useful when the user wants explicit control over the reference pan
 If the internal route identifies questionable BUSCOs and an external BLAST database is available, the user may follow with:
 
 ```bash
-phyloODB mammal_tutorial.db queue external-decontamination-check \
+phyloODB mammal_tutorial.db run external-decontamination-check \
   --run-id <internal_run_id> \
   --blast-db-path /path/to/external/db \
   --output-dir tutorial/results/external_decontamination
 
-phyloODB mammal_tutorial.db queue external-decontamination-apply \
+phyloODB mammal_tutorial.db run external-decontamination-apply \
   --source-run-id <internal_run_id> \
   --run-label mammal_internal_confirmed \
   --external-blast-output-dir tutorial/results/external_decontamination
@@ -352,7 +343,7 @@ This two-step process is a refinement rather than a mandatory stage.
 Once the custom library, paralog filtering, and decontamination runs exist, export the filtered dataset. In this tutorial the exported panel includes both the dense primate sample and the selected mammalian outgroups.
 
 ```bash
-phyloODB mammal_tutorial.db queue export \
+phyloODB mammal_tutorial.db run export \
   --library-name mammal_core_odb12 \
   --accessions @MAMMAL_TARGETS \
   --out-dir tutorial/exports/mammal_core \
@@ -397,4 +388,4 @@ Several natural extensions are possible.
 - Replace the generic outgroup sampling with explicit accession curation once a preferred set of assemblies is known.
 - Create a second derived library focused on Primates alone and compare its behaviour with the broader mammalian library.
 
-The companion shell script `tutorial/chimp_mammal_core_example.sh` provides a commented queue-oriented version of this tutorial.
+The companion shell script `tutorial/chimp_mammal_core_example.sh` provides a commented serial version of this tutorial.
