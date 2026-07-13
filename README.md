@@ -4,27 +4,46 @@ Phylogenetic Ortholog Database tooling with a registry-driven task system.
 
 ## Installation
 
-Create the recommended workstation environment:
+PhyloODB is a Python package, but full end-to-end analyses also require
+external bioinformatics tools including BUSCO, OrthoFinder, BLAST+, MAFFT, and
+IQ-TREE. The bundled `environment.yml` installs both the Python dependencies
+and those command-line tools.
+
+### Install from a release checkout
+
+Clone or download the repository, then create the recommended environment:
 
 ```bash
 mamba env create -f environment.yml
 conda activate phyloodb
 ```
 
-If you already maintain an environment with the same dependencies, activate
-that environment instead. For example, this checkout is commonly used from:
-
-```bash
-conda activate podb2
-```
-
-Install the Python package into that environment:
+Install PhyloODB into that environment:
 
 ```bash
 pip install .
 ```
 
-For development work, use an editable install instead:
+Check that the command-line entry points are available:
+
+```bash
+phyloODB --help
+phyloODB-daemon --help
+```
+
+### Install directly from GitHub
+
+If you do not need a local editable checkout, create an environment with the
+runtime toolchain and install the Python package directly from GitHub:
+
+```bash
+mamba create -n phyloodb -c conda-forge -c bioconda \
+  python=3.11 pip blast busco mafft orthofinder iqtree
+conda activate phyloodb
+pip install "git+https://github.com/MorganASJ/PhyloODB_.git"
+```
+
+For development work from a local clone, use an editable install instead:
 
 ```bash
 pip install -e .[dev]
@@ -35,11 +54,6 @@ Build release artifacts with:
 ```bash
 python -m build
 ```
-
-The packaged Python dependencies are only part of the full toolchain. A full
-end-to-end PhyloODB analysis setup also expects external tools such as BUSCO,
-OrthoFinder, BLAST+, MAFFT, and IQ-TREE. The bundled `environment.yml`
-includes those tools.
 
 ## Documentation
 
