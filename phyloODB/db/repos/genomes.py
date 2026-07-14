@@ -7,6 +7,7 @@ import tarfile
 from contextlib import suppress
 from datetime import datetime
 
+from ..core import sqlite_busy_timeout_ms
 from .base import BaseRepository
 
 SP_TOKENS = {"sp", "sp.", "spp", "spp."}
@@ -397,13 +398,13 @@ class GenomeRepository(BaseRepository):
                         batch.clear()
                 if batch:
                     self.core.executemany(insert_query, batch)
-            self.conn.commit()
+            self.core.commit()
         except Exception:  # boundary: taxonomy bulk import must rollback and re-raise original failure.
-            self.conn.rollback()
+            self.core.rollback()
             raise
         finally:
             if path.endswith(".tar.gz"):
                 shutil.rmtree(extract_dir, ignore_errors=True)
             with suppress(sqlite3.Error):
-                self.core.execute("PRAGMA busy_timeout = 5000")
+                self.core.execute(f"PRAGMA busy_timeout = {sqlite_busy_timeout_ms()}")
                 self.core.execute("PRAGMA read_uncommitted = true")

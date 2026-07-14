@@ -19,7 +19,15 @@ class BuscoRepository(BaseRepository):
                 """
                 SELECT DISTINCT accession
                 FROM (
-                    SELECT accession FROM BUSCO_Results WHERE library_id = ?
+                    SELECT br.accession
+                    FROM BUSCO_Results br
+                    WHERE br.library_id = ?
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM BUSCO_Runs r
+                          WHERE r.accession = br.accession
+                            AND r.library_id = br.library_id
+                      )
                     UNION
                     SELECT accession FROM BUSCO_Runs WHERE library_id = ? AND status = 'completed'
                 )
@@ -31,7 +39,14 @@ class BuscoRepository(BaseRepository):
                 """
                 SELECT DISTINCT accession
                 FROM (
-                    SELECT accession FROM BUSCO_Results WHERE library_id IS NULL
+                    SELECT br.accession
+                    FROM BUSCO_Results br
+                    WHERE br.library_id IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM BUSCO_Runs r
+                          WHERE r.accession = br.accession
+                      )
                     UNION
                     SELECT accession FROM BUSCO_Runs WHERE status = 'completed'
                 )
@@ -44,7 +59,17 @@ class BuscoRepository(BaseRepository):
             """
             SELECT DISTINCT accession
             FROM (
-                SELECT accession FROM BUSCO_Results
+                SELECT br.accession
+                FROM BUSCO_Results br
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM BUSCO_Runs r
+                    WHERE r.accession = br.accession
+                      AND (
+                          r.library_id = br.library_id
+                          OR (r.library_id IS NULL AND br.library_id IS NULL)
+                      )
+                )
                 UNION
                 SELECT accession FROM BUSCO_Runs WHERE status = 'completed'
             )

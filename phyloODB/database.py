@@ -22,7 +22,7 @@ from .db import (
     StorageRepository,
     TaskRepository,
 )
-from .db.core import DatabaseCore
+from .db.core import DatabaseCore, sqlite_busy_timeout_ms
 from .db.errors import MigrationError, PhyloODBDatabaseError, SchemaCompatibilityError
 from .db.schema import (
     CURRENT_SCHEMA_VERSION,
@@ -116,17 +116,17 @@ class DBManager:
             self.conn = sqlite3.connect(
                 connect_target,
                 detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
-                timeout=5,
+                timeout=sqlite_busy_timeout_ms() / 1000.0,
                 check_same_thread=False,
                 **connect_kwargs,
             )
             self.cursor = self.conn.cursor()
             if self.read_only:
-                self.cursor.execute("PRAGMA busy_timeout = 5000")
+                self.cursor.execute(f"PRAGMA busy_timeout = {sqlite_busy_timeout_ms()}")
                 self.cursor.execute("PRAGMA mmap_size = 0")
                 self.cursor.execute("PRAGMA query_only = ON")
             else:
-                self.cursor.execute("PRAGMA busy_timeout = 5000")
+                self.cursor.execute(f"PRAGMA busy_timeout = {sqlite_busy_timeout_ms()}")
                 self.cursor.execute("PRAGMA journal_mode = WAL")
                 self.cursor.execute("PRAGMA mmap_size = 0")
             self.cursor.execute("PRAGMA foreign_keys = ON")

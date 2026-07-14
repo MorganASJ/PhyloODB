@@ -232,6 +232,7 @@ class BatchBuscoTask(Task):
         self.miniprot_parameters = self.data.get("miniprot_parameters")
         self.keep_miniprot_ref_file_raw = self.data.get("keep_miniprot_ref_file", None)
         self.keep_miniprot_ref_file = bool(self.keep_miniprot_ref_file_raw) if self.keep_miniprot_ref_file_raw is not None else False
+        self.max_concurrent = max(1, int(self.data.get("max_concurrent", 1) or 1))
         self.busco_lib_wait_seconds = self.data.get("busco_lib_wait_seconds", 0)
         self.busco_lib_retries = self.data.get("busco_lib_retries", 0)
         self.stage = checkpoint if checkpoint is not None else 0
@@ -331,6 +332,7 @@ class BatchBuscoTask(Task):
         missing = self._busco_missing()
         self.log(f"BUSCO missing: {missing}", "DEBUG")
         queued = False
+        child_threads = max(1, (int(self.REQUIRED_THREADS or 1) + self.max_concurrent - 1) // self.max_concurrent)
         for acc in missing:
             self.queue_subtask(
                 job_type=4,
@@ -355,6 +357,7 @@ class BatchBuscoTask(Task):
                     "metaeuk_rerun_parameters": self.metaeuk_rerun_parameters,
                     "miniprot_parameters": self.miniprot_parameters,
                     "keep_miniprot_ref_file": self.keep_miniprot_ref_file,
+                    "required_threads": child_threads,
                 },
             )
             queued = True
