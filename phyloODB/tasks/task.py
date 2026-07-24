@@ -144,6 +144,18 @@ class Task(ABC):
         raw = self.data.get("accessions") or []
         return list(dict.fromkeys(expand_accession_variables(self.db_manager, raw)))
 
+    def resolve_assembly_accession(self, accession):
+        """Resolve a stored RefSeq/GenBank alias and log canonicalization."""
+
+        requested = str(accession or "").strip()
+        resolved = self.db_manager.genomes.resolve_accession(requested)
+        if requested and resolved and requested != resolved:
+            self.log(
+                f"Resolved requested accession {requested} to canonical assembly {resolved}.",
+                "INFO",
+            )
+        return resolved
+
     def _build_selector_request(
         self,
         *,

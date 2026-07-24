@@ -5,7 +5,34 @@ import json
 
 from ..variable_kinds import infer_variable_kind
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
+
+
+def ensure_assembly_accession_alias_schema(manager) -> None:
+    """Create the additive canonical/alias mapping for assembly accessions."""
+
+    if not manager._table_exists("Assembly"):
+        return
+    manager.cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS Assembly_Accession_Aliases (
+            alias_accession TEXT PRIMARY KEY,
+            assembly_accession TEXT NOT NULL,
+            namespace TEXT,
+            relation TEXT NOT NULL DEFAULT 'equivalent',
+            source TEXT NOT NULL DEFAULT 'ncbi',
+            created_at DATETIME DEFAULT (datetime('now')),
+            updated_at DATETIME DEFAULT (datetime('now')),
+            FOREIGN KEY (assembly_accession) REFERENCES Assembly(accession) ON DELETE CASCADE
+        )
+        """
+    )
+    manager.cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_assembly_accession_alias_canonical
+        ON Assembly_Accession_Aliases(assembly_accession)
+        """
+    )
 
 
 def _legacy_paralog_run_id(target_library_id, busco_library_id) -> str:
@@ -1247,6 +1274,20 @@ CREATE TABLE Assembly (
     total_ungapped_length BIGINT
 );
 
+CREATE TABLE Assembly_Accession_Aliases (
+    alias_accession TEXT PRIMARY KEY,
+    assembly_accession TEXT NOT NULL,
+    namespace TEXT,
+    relation TEXT NOT NULL DEFAULT 'equivalent',
+    source TEXT NOT NULL DEFAULT 'ncbi',
+    created_at DATETIME DEFAULT (datetime('now')),
+    updated_at DATETIME DEFAULT (datetime('now')),
+    FOREIGN KEY (assembly_accession) REFERENCES Assembly(accession) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_assembly_accession_alias_canonical
+ON Assembly_Accession_Aliases(assembly_accession);
+
 CREATE TABLE Taxonomy (
     taxid INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -1786,6 +1827,7 @@ def setup_database(manager) -> None:
     manager.cursor.executescript(_SETUP_SCHEMA_SQL)
     ensure_environment_variable_schema(manager)
     ensure_taxonomy_schema(manager)
+    ensure_assembly_accession_alias_schema(manager)
     ensure_task_queue_schema(manager)
     ensure_busco_run_schema(manager)
     ensure_storage_schema(manager)

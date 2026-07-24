@@ -26,6 +26,7 @@ from .db.core import DatabaseCore, sqlite_busy_timeout_ms
 from .db.errors import MigrationError, PhyloODBDatabaseError, SchemaCompatibilityError
 from .db.schema import (
     CURRENT_SCHEMA_VERSION,
+    ensure_assembly_accession_alias_schema,
     ensure_taxonomy_schema,
     ensure_busco_run_schema,
     ensure_environment_variable_schema,
@@ -186,6 +187,7 @@ class DBManager:
         try:
             with self.transaction(operation=f"schema migration {version} -> {CURRENT_SCHEMA_VERSION}"):
                 ensure_taxonomy_schema(self)
+                ensure_assembly_accession_alias_schema(self)
                 ensure_environment_variable_schema(self)
                 self.ensure_task_queue_schema()
                 self.ensure_busco_run_schema()

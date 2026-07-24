@@ -9,6 +9,7 @@ from datetime import datetime
 
 from ..core import sqlite_busy_timeout_ms
 from .base import BaseRepository
+from ...accession_utils import canonicalize_accession
 
 SP_TOKENS = {"sp", "sp.", "spp", "spp."}
 
@@ -23,14 +24,15 @@ class GenomeRepository(BaseRepository):
         return str(value).split(".")[0]
 
     def get(self, accession):
-        return self.core.fetchone("SELECT * FROM Genome WHERE accession = ?", (accession,))
+        resolved = self.resolve_accession(accession)
+        return self.core.fetchone("SELECT * FROM Genome WHERE accession = ?", (resolved,))
 
     def get_many(self, genome_ids=None, status=None):
         if genome_ids is None:
             if status is None:
                 return self.core.fetchall("SELECT * FROM Genome ORDER BY accession")
             return self.core.fetchall("SELECT * FROM Genome WHERE status >= ? ORDER BY accession", (status,))
-        genome_ids = list(genome_ids or [])
+        genome_ids = self.resolve_accessions(genome_ids or [])
         if not genome_ids:
             return []
         placeholders = ", ".join("?" for _ in genome_ids)
@@ -43,6 +45,82 @@ class GenomeRepository(BaseRepository):
             f"SELECT * FROM Genome WHERE accession IN ({placeholders})",
             tuple(genome_ids),
         )
+
+    def resolve_accession(self, accession):
+        """Resolve an exact stored alias to its canonical Assembly accession."""
+
+        token = canonicalize_accession(accession)
+        if not token:
+            return token
+        row = self.core.fetchone(
+            "SELECT assembly_accession FROM Assembly_Accession_Aliases WHERE alias_accession = ?",
+            (token,),
+        )
+        return str(row[0]) if row and row[0] is not None else token
+
+    def resolve_accessions(self, accessions):
+        resolved = []
+        seen = set()
+        for accession in accessions or []:
+            canonical = self.resolve_accession(accession)
+            if canonical and canonical not in seen:
+                seen.add(canonical)
+                resolved.append(canonical)
+        return resolved
+
+    def get_accession_aliases(self, accession):
+        canonical = self.resolve_accession(accession)
+        return self.core.fetchall(
+            """
+            SELECT alias_accession, assembly_accession, namespace, relation, source
+            FROM Assembly_Accession_Aliases
+            WHERE assembly_accession = ?
+            ORDER BY CASE namespace WHEN 'refseq' THEN 0 WHEN 'genbank' THEN 1 ELSE 2 END,
+                     alias_accession
+            """,
+            (canonical,),
+        )
+
+    def upsert_accession_aliases(self, assembly_accession, aliases):
+        canonical = canonicalize_accession(assembly_accession)
+        if not canonical:
+            return True
+        normalized = {}
+        for entry in aliases or []:
+            if isinstance(entry, dict):
+                alias = canonicalize_accession(entry.get("accession"))
+                namespace = str(entry.get("namespace") or "").strip().lower() or None
+                relation = str(entry.get("relation") or "equivalent").strip() or "equivalent"
+                source = str(entry.get("source") or "ncbi").strip() or "ncbi"
+            else:
+                alias = canonicalize_accession(entry)
+                namespace = None
+                relation = "equivalent"
+                source = "ncbi"
+            if alias:
+                normalized[alias] = (namespace, relation, source)
+        if canonical not in normalized:
+            namespace = "refseq" if canonical.startswith("GCF_") else "genbank" if canonical.startswith("GCA_") else None
+            normalized[canonical] = (namespace, "canonical", "ncbi")
+        with self.core.transaction(operation=f"upsert assembly accession aliases for {canonical}"):
+            self.core.executemany(
+                """
+                INSERT INTO Assembly_Accession_Aliases (
+                    alias_accession, assembly_accession, namespace, relation, source
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(alias_accession) DO UPDATE SET
+                    assembly_accession = excluded.assembly_accession,
+                    namespace = excluded.namespace,
+                    relation = excluded.relation,
+                    source = excluded.source,
+                    updated_at = datetime('now')
+                """,
+                [
+                    (alias, canonical, namespace, relation, source)
+                    for alias, (namespace, relation, source) in normalized.items()
+                ],
+            )
+            return True
 
     def get_accessions_by_taxid(self, taxid: int, include_descendants: bool = True, status_min: int | None = 1, protein_only: bool = False):
         if include_descendants:
@@ -80,6 +158,7 @@ class GenomeRepository(BaseRepository):
         )
 
     def get_path(self, accession):
+        accession = self.resolve_accession(accession)
         row = self.core.fetchone(
             "SELECT storage_root_id, relative_path, location FROM Genome WHERE accession = ?",
             (accession,),
@@ -93,10 +172,10 @@ class GenomeRepository(BaseRepository):
         )
 
     def resolve_path(self, accession):
-        return self.manager.storage.resolve_genome_location(accession)
+        return self.manager.storage.resolve_genome_location(self.resolve_accession(accession))
 
     def set_binding(self, accession, path, *, kind="genomes"):
-        return self.manager.storage.bind_genome_location(accession, path, kind=kind)
+        return self.manager.storage.bind_genome_location(self.resolve_accession(accession), path, kind=kind)
 
     def insert(self, data):
         with self.core.transaction(operation=f"insert genome {data.get('accession')}"):
@@ -152,6 +231,7 @@ class GenomeRepository(BaseRepository):
     def insert_assembly(self, data):
         with self.core.transaction(operation=f"insert assembly {data.get('accession')}"):
             values = dict(data)
+            aliases = values.pop("_accession_aliases", [])
             keys = list(values.keys())
             columns = ", ".join(keys)
             placeholders = ", ".join(["?"] * len(keys))
@@ -159,11 +239,13 @@ class GenomeRepository(BaseRepository):
                 f"INSERT OR IGNORE INTO Assembly ({columns}) VALUES ({placeholders})",
                 tuple(values[k] for k in keys),
             )
+            self.upsert_accession_aliases(values.get("accession"), aliases)
             return True
 
     def upsert_assembly(self, data):
         with self.core.transaction(operation=f"upsert assembly {data.get('accession')}"):
             values = dict(data)
+            aliases = values.pop("_accession_aliases", [])
             keys = list(values.keys())
             columns = ", ".join(keys)
             placeholders = ", ".join(["?"] * len(keys))
@@ -172,9 +254,11 @@ class GenomeRepository(BaseRepository):
                 f"INSERT INTO Assembly ({columns}) VALUES ({placeholders}) ON CONFLICT(accession) DO UPDATE SET {update_clause}",
                 tuple(values[k] for k in keys),
             )
+            self.upsert_accession_aliases(values.get("accession"), aliases)
             return True
 
     def update_status(self, accession, status, details=None):
+        accession = self.resolve_accession(accession)
         with self.core.transaction(operation=f"update genome status {accession}"):
             if status == 1:
                 if not details or len(details) != 3:
@@ -199,6 +283,7 @@ class GenomeRepository(BaseRepository):
             return True
 
     def set_isoforms_cleaned(self, accession, value):
+        accession = self.resolve_accession(accession)
         with self.core.transaction(operation=f"set isoform-cleaned flag {accession}"):
             self.core.execute(
                 "UPDATE Genome SET isoforms_cleaned = ? WHERE accession = ?",
@@ -207,6 +292,7 @@ class GenomeRepository(BaseRepository):
             return True
 
     def set_protein(self, accession, value):
+        accession = self.resolve_accession(accession)
         with self.core.transaction(operation=f"set protein flag {accession}"):
             self.core.execute(
                 "UPDATE Genome SET protein = ? WHERE accession = ?",
@@ -215,10 +301,12 @@ class GenomeRepository(BaseRepository):
             return True
 
     def get_status(self, accession):
+        accession = self.resolve_accession(accession)
         row = self.core.fetchone("SELECT status FROM Genome WHERE accession = ?", (accession,))
         return int(row[0]) if row and row[0] is not None else None
 
     def hide(self, accession: str, status: str | None = None, reason: str | None = None):
+        accession = self.resolve_accession(accession)
         with self.core.transaction(operation=f"hide genome {accession}"):
             self.core.execute(
                 "INSERT OR REPLACE INTO Hidden_Genomes (accession, status, reason) VALUES (?, ?, ?)",

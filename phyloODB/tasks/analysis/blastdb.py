@@ -130,6 +130,7 @@ class CreateProteomeBlastDB(Task):
         return decompressed_path
         
     def run(self):
+        self.accession = self.resolve_assembly_accession(self.accession)
         
         # if a direct path is not given to a proteome check the accession has one and get it
         if not self.faa:

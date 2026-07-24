@@ -26,12 +26,69 @@ from .commands.selectors import register_selector_parser
 from .commands.task_exec import register_task_exec_parsers
 from .commands.taxonomic_tree import register_tree_parser
 from .support.common import _infer_db_path, _load_selector_defaults, _normalize_action_alias
+from .. import __version__
 from ..database import DBManager
 from ..db.errors import PhyloODBDatabaseError
 from ..errors import PhyloODBError
 
 
 logger = logging.getLogger(__name__)
+
+ROOT_HELP = """\
+PhyloODB — a database management framework for constructing scalable
+orthologous phylogenomic datasets.
+
+PhyloODB coordinates assembly metadata and downloads, immutable proteome
+profiles, BUSCO analyses, OrthoFinder runs, filtering, task scheduling, and
+reproducible dataset export through a central SQLite database.
+
+Start every project command with its database:
+
+  phyloODB DATABASE COMMAND [OPTIONS]
+
+Typical workflow:
+
+  1. Set up
+     create              Create and initialise a PhyloODB database
+     migrate             Upgrade an existing database schema
+     set                 Configure variables, defaults, and primary profiles
+
+  2. Find and inspect assemblies
+     assemblies          Select and display assemblies
+     count               Count assemblies matching selection rules
+     selector            Save and reuse named assembly selections
+     tree                Display taxonomic trees
+     list                Inspect assemblies, profiles, BUSCO runs, libraries,
+                         tasks, variables, and storage roots
+
+  3. Run analyses
+     run                 Run a task immediately and follow it to completion
+     queue               Submit a task to the shared daemon
+     status              Check task or workflow status
+     watch               Monitor the live queue or errors
+
+     Common tasks include:
+       update-assembly, download, prepare-proteome, busco,
+       orthofinder-run, add-library, decontamination, and export
+
+  4. Manage data
+     storage             Configure and move managed storage roots
+     discover            Register existing assemblies and analysis results
+     verify              Audit stored data and analysis artifacts
+     purge               Remove selected database-managed records
+
+Examples:
+
+  phyloODB project.db create --email you@example.org
+  phyloODB project.db assemblies --clade Metazoa --quantity 1 --rank genus
+  phyloODB project.db run download --accessions @METAZOA_CORE --protein
+  phyloODB project.db queue busco --accession GCF_000001405.40 \\
+      --lineage metazoa_odb12 --format protein
+  phyloODB project.db list queue
+
+Use `phyloODB DATABASE COMMAND -h` for command-specific help.
+Use `phyloODB DATABASE info TASK` for detailed task information.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -78,11 +135,18 @@ def build_parser(selector_defaults: Optional[Mapping[str, object]] = None) -> ar
 
     parser = argparse.ArgumentParser(
         prog="phyloODB",
-        description="CLI for working with the PhyloODB database.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description=ROOT_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        usage="phyloODB [-h] [--version] DATABASE COMMAND [OPTIONS]",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show the installed PhyloODB version and exit.",
     )
     parser.add_argument("database", help="Path to the PhyloODB SQLite database.")
-    subparsers = parser.add_subparsers(dest="action", required=True)
+    subparsers = parser.add_subparsers(dest="action", required=True, metavar="COMMAND")
 
     register_list_parser(subparsers, selector_defaults=selector_defaults, handler=_handle_list)
     register_watch_parser(subparsers, handler=_dispatch_watch)
@@ -121,6 +185,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("Error: unexpected failure while loading selector defaults; see the log for details.", file=sys.stderr)
         return 1
     parser = build_parser(selector_defaults=selector_defaults)
+    if not normalized_args:
+        parser.print_help()
+        return 0
     try:
         args = parser.parse_args(normalized_args)
     except SystemExit as exc:

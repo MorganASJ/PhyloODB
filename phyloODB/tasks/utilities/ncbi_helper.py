@@ -8,6 +8,7 @@ from Bio import Entrez
 import urllib.request
 from xml.etree import ElementTree as ET
 import time
+from ...accession_utils import canonicalize_accession
 
 MAX_ATTEMPTS = 5
 LIBRARIES = "./libraries"
@@ -250,6 +251,46 @@ class NCBIHelper:
                 return doc_summary.get(key)
             return doc_lower.get(str(key).lower())
 
+        def _ncbi_accession(value):
+            token = canonicalize_accession(value)
+            if token.upper().startswith(("GCA_", "GCF_")) and "." in token:
+                return token
+            return None
+
+        synonyms = _get_key("Synonym") or {}
+        synonym_lower = (
+            {str(key).lower(): value for key, value in synonyms.items()}
+            if hasattr(synonyms, "items")
+            else {}
+        )
+        genbank_accession = _ncbi_accession(
+            synonym_lower.get("genbank")
+            or synonym_lower.get("genbankaccession")
+            or synonym_lower.get("genbank_accession")
+        )
+        refseq_accession = _ncbi_accession(
+            synonym_lower.get("refseq")
+            or synonym_lower.get("refseqaccession")
+            or synonym_lower.get("refseq_accession")
+        )
+        reported_accession = _ncbi_accession(_get_key("AssemblyAccession"))
+        canonical_accession = refseq_accession or reported_accession or genbank_accession
+        accession_aliases = []
+        for alias, namespace in (
+            (refseq_accession, "refseq"),
+            (genbank_accession, "genbank"),
+            (reported_accession, infer_ncbi_origin(reported_accession)),
+        ):
+            if alias and not any(item["accession"] == alias for item in accession_aliases):
+                accession_aliases.append(
+                    {
+                        "accession": alias,
+                        "namespace": namespace,
+                        "relation": "canonical" if alias == canonical_accession else "equivalent",
+                        "source": "ncbi",
+                    }
+                )
+
         suppression_reason = self._suppression_reason(doc_summary)
         if suppression_reason:
             if self.db_manager:
@@ -284,12 +325,12 @@ class NCBIHelper:
             return None
 
         assembly_data = {
-            'accession': _get_key('AssemblyAccession'),
+            'accession': canonical_accession,
             'uid': uid_val,
             'assembly_method': _get_key('AssemblyMethod'),
             'assembly_type': _get_key('AssemblyType'),
             'assembly_status': _first_present(("AssemblyStatus", "assemblyStatus", "Status")),
-            'origin': infer_ncbi_origin(_get_key('AssemblyAccession')),
+            'origin': infer_ncbi_origin(canonical_accession),
             # Prefer GenBank release date; fall back to RefSeq/other dates if absent.
             'release_date': self.parse_date(
                 _get_key('AsmReleaseDate_GenBank')
@@ -323,6 +364,7 @@ class NCBIHelper:
             'total_number_of_chromosomes': int(meta_stats.get('chromosome_count_all', 0)),
             'total_sequence_length': int(meta_stats.get('total_length_all', 0)),
             'total_ungapped_length': int(meta_stats.get('ungapped_length_all', 0)),
+            '_accession_aliases': accession_aliases,
         }
 
         # cursor = db.cursor
@@ -351,7 +393,7 @@ class NCBIHelper:
             properties_val = None
 
         genome_data = {
-            'accession': _get_key('AssemblyAccession'),
+            'accession': canonical_accession,
             'taxid': taxid,
             'assembly_level': _first_present(("AssemblyLevel", "assemblyLevel", "AssemblyStatus", "assemblyStatus")),
             'assembly_properties': properties_val,

@@ -117,6 +117,9 @@ The top-level interface is:
 phyloODB <database> {list,watch,tree,storage,discover,count,assemblies,selector,queue,status,run,set,info,create,migrate,clear,purge,reset,kill,cancel}
 ```
 
+Running `phyloODB` or `phyloODB -h` displays the top-level workflow and command
+overview. `phyloODB --version` prints the installed package version.
+
 These commands fall into four broad groups.
 
 ### 3.1 Inspection commands
@@ -1281,6 +1284,15 @@ These tasks establish what data exist and where sequence files live.
 `create-taxonomy` populates the database taxonomy tables from an NCBI taxdump. It is normally run during `create` or `reset`, but can be rerun periodically to repair or update taxonomy knowledge. It can be pointed to an existing taxdump.
 
 `update-assembly` fetches assembly metadata from NCBI for a taxid, clade-derived taxid, or explicit accession list. It records what assemblies exist and their metadata, but it does not download genome or proteome sequence files. This is the task behind the common `queue add --clade ...` pattern introduced earlier in the manual.
+
+When NCBI reports paired GenBank (`GCA_`) and RefSeq (`GCF_`) accessions for
+the same assembly, PhyloODB keeps one canonical assembly row and stores both
+identifiers as aliases. RefSeq is canonical when it exists. Exact versioned
+aliases are resolved at task and selector boundaries, so requesting the GCA
+identifier can reuse or download the corresponding GCF-backed assembly without
+duplicating BUSCO, proteome-profile, library, or artifact state. Existing
+databases can backfill these mappings by rerunning `update-assembly`; the schema
+migration itself does not contact NCBI.
 
 ```bash
 phyloODB my_project.db queue add --clade Primates

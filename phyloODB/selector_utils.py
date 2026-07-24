@@ -1217,7 +1217,7 @@ def expand_accession_variables(
         else:
             raise ValueError(f"Accession variable '{var_name}' must be a list or comma-separated string.")
 
-    return normalize_accessions(expanded)
+    return manager.genomes.resolve_accessions(normalize_accessions(expanded))
 
 
 def resolve_clade_to_taxid(manager: DBManager, clade: str) -> Optional[int]:

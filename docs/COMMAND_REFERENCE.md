@@ -10,6 +10,9 @@ Use this reference for: fast command lookup. If you are new to the project, star
 phyloODB <database> {list,watch,tree,storage,discover,count,assemblies,selector,queue,status,run,set,info,create,migrate,clear,purge,reset,kill,cancel}
 ```
 
+Run `phyloODB` or `phyloODB -h` for the workflow-oriented command overview.
+Run `phyloODB --version` to print the installed package version.
+
 ### `create`
 Create and initialise a database.
 
@@ -61,7 +64,7 @@ never migrate a database as a side effect.
 phyloODB project.db migrate
 ```
 
-The current schema is version 4. It includes transactional filesystem-operation
+The current schema is version 7. It includes transactional filesystem-operation
 recovery, storage/proteome state, and selector presets.
 
 ### `storage`
@@ -580,6 +583,11 @@ Key options:
 
 #### `update-assembly` (`add`)
 Fetch assembly metadata for a taxid or explicit accession list.
+
+NCBI RefSeq and GenBank accessions reported as synonyms are stored as aliases
+of one canonical assembly. RefSeq is preferred as the canonical identity when
+available. Rerunning `update-assembly` backfills these aliases for existing
+assembly rows without duplicating their genome or analysis records.
 
 Key options:
 

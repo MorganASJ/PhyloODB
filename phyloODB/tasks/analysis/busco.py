@@ -994,6 +994,7 @@ class BuscoTask(Task):
             return self.handle_exception("Lineage is not specified.", {"lineage": self.lineage})
         if not self.accession:
             return self.handle_exception("Accession is not specified.", {"accession": self.accession})
+        self.accession = self.resolve_assembly_accession(self.accession)
         if self.format not in ("auto", "protein", "genome"):
             return self.handle_exception(ValueError("Format must be one of 'auto', 'protein', or 'genome' (or nucleotide aliases)."))
 

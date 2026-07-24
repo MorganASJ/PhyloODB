@@ -50,6 +50,7 @@ Check that the command-line entry points are available:
 
 ```bash
 phyloODB --help
+phyloODB --version
 phyloODB-daemon --help
 cd-hit -h
 ```
