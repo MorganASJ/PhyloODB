@@ -183,13 +183,9 @@ class AddLibraryTask(Task):
     def _busco_missing(self):
         """Get accessions that are missing BUSCO results."""
         missing = []
+        pinned = self._pin_proteome_profile_inputs()
         for accession in self.accessions:
-            profile_name, _row, _path = resolve_proteome_profile_input(
-                self.db_manager,
-                str(accession),
-                proteome_profile=self.proteome_profile,
-                prefer_proteome_profile=self.prefer_proteome_profile,
-            )
+            profile_name = str(pinned[str(accession)]["profile_name"])
             run_id = self.db_manager.busco.get_effective_run_id_for_accession(
                 str(accession),
                 int(self.parent_library_id),
@@ -217,21 +213,44 @@ class AddLibraryTask(Task):
 
     def _orthofinder_profile_inputs(self):
         """Resolve the exact profile identity expected for every OrthoFinder input."""
-        resolved = {}
+        pinned = self._pin_proteome_profile_inputs()
+        return {
+            accession: (
+                int(values["profile_id"]),
+                str(values["checksum"]) if values.get("checksum") is not None else None,
+            )
+            for accession, values in pinned.items()
+        }
+
+    def _pin_proteome_profile_inputs(self):
+        """Resolve once and persist the exact input profile used by all child tasks."""
+        existing = self.data.get("_resolved_proteome_profile_inputs")
+        if isinstance(existing, dict) and set(existing) == set(self.accessions):
+            return existing
+        pinned = {}
         for accession in self.accessions:
-            _name, row, _path = resolve_proteome_profile_input(
+            profile_name, row, path = resolve_proteome_profile_input(
                 self.db_manager,
                 str(accession),
                 proteome_profile=self.proteome_profile,
                 prefer_proteome_profile=self.prefer_proteome_profile,
             )
-            if row is None:
-                raise FileNotFoundError(f"No usable proteome profile found for accession '{accession}'.")
-            resolved[str(accession)] = (
-                int(row[0]),
-                str(row[8]) if len(row) > 8 and row[8] is not None else None,
-            )
-        return resolved
+            pinned[str(accession)] = {
+                "profile_name": str(profile_name),
+                "profile_id": int(row[0]),
+                "checksum": str(row[8]) if len(row) > 8 and row[8] is not None else None,
+                "path": str(path),
+            }
+        self.checkpoint(
+            int(self.stage or 0),
+            {"_resolved_proteome_profile_inputs": pinned},
+        )
+        self.log(
+            "Pinned proteome profiles for add-library: "
+            + ", ".join(f"{acc}={values['profile_name']}" for acc, values in sorted(pinned.items())),
+            "INFO",
+        )
+        return pinned
 
     def queue_busco(self):
         # lineage = self.data.get("busco_lineage", "metazoa_odb10")
@@ -251,6 +270,7 @@ class AddLibraryTask(Task):
                 "accessions": self.accessions,
                 "library_id": self.library_id,
                 "out_dir": orthofinder_root,
+                "proteome_profile_inputs": self._pin_proteome_profile_inputs(),
             }
             if self.orthofinder_mcl_inflation not in (None, ""):
                 orthofinder_payload["mcl_inflation"] = float(self.orthofinder_mcl_inflation)
@@ -267,19 +287,18 @@ class AddLibraryTask(Task):
             self.log(f"Queued OrthoFinder subtask for accessions: {', '.join(self.accessions)}", "DEBUG")
             queued = True
         for acc in missing:
-            resolved_profile, _row, _path = resolve_proteome_profile_input(
-                self.db_manager,
-                str(acc),
-                proteome_profile=self.proteome_profile,
-                prefer_proteome_profile=self.prefer_proteome_profile,
-            )
+            pinned_input = self._pin_proteome_profile_inputs()[str(acc)]
+            resolved_profile = pinned_input["profile_name"]
             busco_payload = {
                 "accession": acc,
                 "lineage": self.parent_library_name,
                 "format": format,
                 "force": self.rerun_busco,
                 "proteome_profile": resolved_profile,
+                "expected_proteome_profile_id": int(pinned_input["profile_id"]),
             }
+            if pinned_input.get("checksum") is not None:
+                busco_payload["expected_proteome_checksum"] = str(pinned_input["checksum"])
             if self.prefer_proteome_profile:
                 busco_payload["prefer_proteome_profile"] = self.prefer_proteome_profile
             self.queue_subtask(
@@ -1444,6 +1463,13 @@ class AddLibraryTask(Task):
         # Phase 3+: BUSCO 
         
         self.log("Download phase complete. Starting BUSCO analysis.", "INFO")
+        try:
+            self._pin_proteome_profile_inputs()
+        except (FileNotFoundError, ValueError) as exc:
+            return self.handle_exception(
+                "Failed to pin proteome profiles for add-library.",
+                {"error": str(exc), "accessions": self.accessions},
+            )
 
         outcome = self.manage_subtasks(
             stage=3,

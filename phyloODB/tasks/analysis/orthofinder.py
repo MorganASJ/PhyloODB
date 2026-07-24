@@ -47,6 +47,7 @@ class OrthoFinderTask(Task):
             raw_proteome=self.data.get("raw_proteome"),
         )
         self.prefer_proteome_profile = str(self.data.get("prefer_proteome_profile") or "").strip() or None
+        self.proteome_profile_inputs = dict(self.data.get("proteome_profile_inputs") or {})
         self.library_id = self.data.get("library_id", None)
         self.library_name = self.data.get("library_name", None)
         self.check_for_previous_run_folders = self.data.get("check_for_previous_run_folders", True)
@@ -273,7 +274,12 @@ class OrthoFinderTask(Task):
         return RAW_PROFILE
 
     def _resolve_proteome_input(self, accession, genome_path):
-        requested_profile = self._resolve_requested_proteome_profile(str(accession))
+        pinned = self.proteome_profile_inputs.get(str(accession))
+        requested_profile = (
+            str(pinned.get("profile_name"))
+            if isinstance(pinned, dict) and pinned.get("profile_name")
+            else self._resolve_requested_proteome_profile(str(accession))
+        )
         resolved_profile, row = self._lookup_proteome_profile_row(str(accession), requested_profile)
         if row is None:
             raise FileNotFoundError(
@@ -284,6 +290,20 @@ class OrthoFinderTask(Task):
             raise FileNotFoundError(
                 f"Proteome profile '{resolved_profile}' has no readable artifact for accession '{accession}'."
             )
+        if isinstance(pinned, dict):
+            expected_id = pinned.get("profile_id")
+            expected_checksum = pinned.get("checksum")
+            observed_checksum = row[8] if len(row) > 8 else None
+            if expected_id is not None and int(row[0]) != int(expected_id):
+                raise ValueError(
+                    f"Pinned proteome profile changed for accession '{accession}': "
+                    f"expected id {expected_id}, observed {row[0]}."
+                )
+            if expected_checksum is not None and str(observed_checksum) != str(expected_checksum):
+                raise ValueError(
+                    f"Pinned proteome checksum changed for accession '{accession}': "
+                    f"expected {expected_checksum}, observed {observed_checksum}."
+                )
         return resolved_profile, int(row[0]), path
 
     def get_folder_creation_date(self, folder_path):

@@ -1609,6 +1609,8 @@ When PhyloODB discovers an older OrthoFinder folder and considers ingesting it f
 
 This is the step that turns generic BUSCO lineages into project-specific core sets.
 
+After its download and automatic preparation phase, `add-library` resolves and checkpoints one exact proteome profile per reference accession. An explicit `--proteome-profile` is resolved for every accession; otherwise each accession's default is selected. The resulting profile names, IDs, and checksums are passed to both protein BUSCO and OrthoFinder children. They do not reselect a newer default after the parent suspends, and they fail rather than silently continuing if a pinned profile artifact changes before it is consumed.
+
 ```bash
 phyloODB my_project.db queue add-library \
   --name metazoa_core \

@@ -803,6 +803,7 @@ Rebuild semantics:
 - `--rerun-orthofinder` forces a fresh OrthoFinder child task for the reference accession set;
 - `--orthofinder-mcl-inflation` is forwarded to the child OrthoFinder run and becomes part of the reuse identity for matching existing OrthoFinder results;
 - BUSCO and OrthoFinder child tasks resolve the same per-accession default or explicitly selected proteome profile;
+- `add-library` pins those per-accession selections after the download/preparation phase and persists them in its checkpoint, so a default-profile change while the task is suspended cannot make its BUSCO and OrthoFinder children use different inputs;
 - `--rerun-gene-trees` forces fresh replacement IQ-TREE orthogroup trees even when matching trees already exist in `IQ-TREE_Orthogroup_trees`;
 - `--skip-paralog-analysis` accepts exact 1:1 BUSCO/orthogroup families directly after occupancy filtering and skips tree building plus paralog classification;
 - default `--gene-tree-source iqtree` builds canonical core-set trees in `IQ-TREE_Orthogroup_trees` while leaving OrthoFinder `Resolved_Gene_Trees` untouched;

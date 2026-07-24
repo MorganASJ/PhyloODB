@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 
 from pydantic import BaseModel, Field, PositiveInt, field_validator, model_validator
@@ -151,6 +151,15 @@ class BuscoTaskPayload(TaskPayload):
     pipeline: Optional[Literal["auto", "miniprot", "metaeuk", "augustus"]] = "auto"
     proteome_profile: Optional[str] = None
     prefer_proteome_profile: Optional[str] = None
+    expected_proteome_profile_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Internal: pinned proteome profile ID supplied by a parent task.",
+    )
+    expected_proteome_checksum: Optional[str] = Field(
+        default=None,
+        description="Internal: pinned proteome checksum supplied by a parent task.",
+    )
     isoforms_cleaned: Optional[bool] = None
     raw_proteome: bool = False
     augustus_evalue: Optional[float] = Field(default=None, ge=0.0)
@@ -179,6 +188,10 @@ class OrthoFinderPayload(TaskPayload):
     accessions: List[str] = Field(default_factory=list)
     proteome_profile: Optional[str] = None
     prefer_proteome_profile: Optional[str] = None
+    proteome_profile_inputs: Optional[Dict[str, Dict[str, Any]]] = Field(
+        default=None,
+        description="Internal: pinned per-accession proteome profile provenance supplied by a parent task.",
+    )
     isoforms_cleaned: Optional[bool] = None
     raw_proteome: bool = False
     library_id: Optional[int] = Field(default=None, ge=1)

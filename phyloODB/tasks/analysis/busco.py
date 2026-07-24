@@ -442,6 +442,8 @@ class BuscoTask(Task):
             raw_proteome=self.data.get("raw_proteome"),
         )
         self.prefer_proteome_profile = str(self.data.get("prefer_proteome_profile") or "").strip() or None
+        self.expected_proteome_profile_id = self.data.get("expected_proteome_profile_id")
+        self.expected_proteome_checksum = self.data.get("expected_proteome_checksum")
         self.augustus_evalue = self.data.get("augustus_evalue")
         self.augustus_limit = self.data.get("augustus_limit")
         self.augustus_long = self.data.get("augustus_long")
@@ -1112,6 +1114,24 @@ class BuscoTask(Task):
                     self.accession,
                     genome_path,
                 )
+                selected_row = self.db_manager.proteomes.get(int(selected_profile_id))
+                selected_checksum = selected_row[8] if selected_row and len(selected_row) > 8 else None
+                if (
+                    self.expected_proteome_profile_id is not None
+                    and int(selected_profile_id) != int(self.expected_proteome_profile_id)
+                ):
+                    raise ValueError(
+                        f"Pinned proteome profile changed for accession '{self.accession}': "
+                        f"expected id {self.expected_proteome_profile_id}, observed {selected_profile_id}."
+                    )
+                if (
+                    self.expected_proteome_checksum is not None
+                    and str(selected_checksum) != str(self.expected_proteome_checksum)
+                ):
+                    raise ValueError(
+                        f"Pinned proteome checksum changed for accession '{self.accession}': "
+                        f"expected {self.expected_proteome_checksum}, observed {selected_checksum}."
+                    )
             except Exception as exc:  # boundary: preflight profile resolution failure becomes this task's failure
                 create_failed_preflight_run()
                 return self.handle_exception(exc, {"accession": self.accession, "proteome_profile": self.proteome_profile})
