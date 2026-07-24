@@ -24,6 +24,7 @@ from .trees import (
     expected_iqtree_tree_dir,
     expected_mafft_output_path,
 )
+from .blastdb import resolve_proteome_profile_input
 
 class AddLibraryTask(Task):
     '''A class that handles the add library task'''
@@ -181,20 +182,56 @@ class AddLibraryTask(Task):
 
     def _busco_missing(self):
         """Get accessions that are missing BUSCO results."""
-        present = self.db_manager.busco.get_processed_accessions(self.parent_library_id)
-        missing = [acc for acc in self.accessions if acc not in present]
+        missing = []
+        for accession in self.accessions:
+            profile_name, _row, _path = resolve_proteome_profile_input(
+                self.db_manager,
+                str(accession),
+                proteome_profile=self.proteome_profile,
+                prefer_proteome_profile=self.prefer_proteome_profile,
+            )
+            run_id = self.db_manager.busco.get_effective_run_id_for_accession(
+                str(accession),
+                int(self.parent_library_id),
+                pipeline="busco",
+                input_mode="protein",
+                proteome_profile=profile_name,
+                purpose="default",
+            )
+            if run_id is None:
+                missing.append(accession)
         return missing
 
     def _orthofinder_missing(self):
         """Get true false value as to whether an orthofinder run exists for the list of accessions provided."""
+        profile_inputs = self._orthofinder_profile_inputs()
         # Return a tuple (id, location) when both are present; otherwise None so the caller knows it's incomplete.
         rows = self.db_manager.orthofinder.assert_results_exist(
             self.accessions,
             mcl_inflation=self.orthofinder_mcl_inflation,
+            profile_inputs=profile_inputs,
         )
         if not rows or len(rows) < 2 or rows[0] is None or rows[1] is None:
             return None
         return rows[0], rows[1]
+
+    def _orthofinder_profile_inputs(self):
+        """Resolve the exact profile identity expected for every OrthoFinder input."""
+        resolved = {}
+        for accession in self.accessions:
+            _name, row, _path = resolve_proteome_profile_input(
+                self.db_manager,
+                str(accession),
+                proteome_profile=self.proteome_profile,
+                prefer_proteome_profile=self.prefer_proteome_profile,
+            )
+            if row is None:
+                raise FileNotFoundError(f"No usable proteome profile found for accession '{accession}'.")
+            resolved[str(accession)] = (
+                int(row[0]),
+                str(row[8]) if len(row) > 8 and row[8] is not None else None,
+            )
+        return resolved
 
     def queue_busco(self):
         # lineage = self.data.get("busco_lineage", "metazoa_odb10")
@@ -230,9 +267,24 @@ class AddLibraryTask(Task):
             self.log(f"Queued OrthoFinder subtask for accessions: {', '.join(self.accessions)}", "DEBUG")
             queued = True
         for acc in missing:
+            resolved_profile, _row, _path = resolve_proteome_profile_input(
+                self.db_manager,
+                str(acc),
+                proteome_profile=self.proteome_profile,
+                prefer_proteome_profile=self.prefer_proteome_profile,
+            )
+            busco_payload = {
+                "accession": acc,
+                "lineage": self.parent_library_name,
+                "format": format,
+                "force": self.rerun_busco,
+                "proteome_profile": resolved_profile,
+            }
+            if self.prefer_proteome_profile:
+                busco_payload["prefer_proteome_profile"] = self.prefer_proteome_profile
             self.queue_subtask(
                 job_type=4, status="P", priority=1,
-                data={"accession": acc, "lineage": self.parent_library_name, "format": format, "force": self.rerun_busco}
+                data=busco_payload,
             )
             # if first:
             #     #Give first task a headstart to download lineage if not available...
@@ -1414,6 +1466,7 @@ class AddLibraryTask(Task):
             self.orthofinder_id, self.orthofinder_location = self.db_manager.orthofinder.assert_results_exist(
                 self.accessions,
                 mcl_inflation=self.orthofinder_mcl_inflation,
+                profile_inputs=self._orthofinder_profile_inputs(),
             )
             if not self.orthofinder_id or not self.orthofinder_location:
                 return self.handle_exception("OrthoFinder results not found after BUSCO phase despite checks indicating they should be present.", {"accessions": self.accessions})

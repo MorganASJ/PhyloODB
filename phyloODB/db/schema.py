@@ -5,7 +5,7 @@ import json
 
 from ..variable_kinds import infer_variable_kind
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 def _legacy_paralog_run_id(target_library_id, busco_library_id) -> str:
@@ -816,6 +816,10 @@ def ensure_task_queue_schema(manager) -> None:
         cursor.execute("ALTER TABLE OrthoFinder_Results ADD COLUMN mcl_inflation REAL")
     if manager._table_exists("OrthoFinder_Results") and not manager._column_exists("OrthoFinder_Results", "command_line"):
         cursor.execute("ALTER TABLE OrthoFinder_Results ADD COLUMN command_line TEXT")
+    if manager._table_exists("OrthoFinder_Accessions") and not manager._column_exists("OrthoFinder_Accessions", "proteome_profile_id"):
+        cursor.execute("ALTER TABLE OrthoFinder_Accessions ADD COLUMN proteome_profile_id INTEGER")
+    if manager._table_exists("OrthoFinder_Accessions") and not manager._column_exists("OrthoFinder_Accessions", "proteome_checksum"):
+        cursor.execute("ALTER TABLE OrthoFinder_Accessions ADD COLUMN proteome_checksum TEXT")
     if manager._table_exists("Libraries"):
         cursor.execute("DROP VIEW IF EXISTS Libraries_View")
         cursor.execute(
@@ -1736,8 +1740,11 @@ CREATE TABLE OrthoFinder_Results (
 CREATE TABLE OrthoFinder_Accessions (
     orthofinder_id INT,
     accession VARCHAR(50),
+    proteome_profile_id INTEGER,
+    proteome_checksum TEXT,
     PRIMARY KEY (orthofinder_id, accession),
-    FOREIGN KEY (orthofinder_id) REFERENCES OrthoFinder_Results(orthofinder_id)
+    FOREIGN KEY (orthofinder_id) REFERENCES OrthoFinder_Results(orthofinder_id),
+    FOREIGN KEY (proteome_profile_id) REFERENCES Proteome_Profiles(proteome_profile_id)
 );
 
 CREATE VIEW OrthoFinder_Results_View AS

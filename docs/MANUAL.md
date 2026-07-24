@@ -1584,6 +1584,8 @@ This is why PhyloODB tracks BUSCO runs explicitly rather than flattening them in
 
 `orthofinder-run` is used in the construction of derived libraries rather than in routine screening. It provides the orthology context required by `add-library`.
 
+For accession-driven runs, `orthofinder-run` uses each accession's default proteome profile unless an explicit or preferred profile is requested. The selected profile ID and checksum are stored for every accession and form part of run identity. A run made from raw proteomes therefore cannot satisfy a later request whose accessions default to cleaned profiles, and replacing a profile artifact invalidates reuse of results made from its previous checksum.
+
 `orthofinder-run` can also take an explicit MCL inflation override via `--mcl-inflation`. This value is stored with the OrthoFinder run record and is part of run identity for reuse. In practical terms, the same accession set with a different inflation value is treated as a different OrthoFinder analysis rather than as a cache hit.
 
 ```bash

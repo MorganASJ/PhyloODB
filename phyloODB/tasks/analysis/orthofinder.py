@@ -228,14 +228,8 @@ class OrthoFinderTask(Task):
                 if accession not in genome_info:
                     raise FileNotFoundError(f"Accession {accession} not found in genome information.")
                 location = genome_info[accession][location_idx]
-                selected_profile = None
-                if self.proteome_profile or self.prefer_proteome_profile:
-                    selected_profile, _, proteome_path = self._resolve_proteome_input(accession, location)
-                    source_filename = os.path.basename(proteome_path)
-                else:
-                    source_filename = self._select_proteome_filename(location, accession)
-                    if not source_filename:
-                        raise FileNotFoundError(f"No valid proteome files found for accession {accession}.")
+                selected_profile, _, proteome_path = self._resolve_proteome_input(accession, location)
+                source_filename = os.path.basename(proteome_path)
                 expected.append(
                     self._build_staged_proteome_filename(
                         accession,
@@ -462,11 +456,30 @@ class OrthoFinderTask(Task):
             if not bool(genome_info[accession][location_idx]):
                 return self.handle_exception(f"Accession {accession} has no location information available.", {"accession": accession})
 
+        resolved_inputs = {}
+        profile_inputs = {}
+        try:
+            for accession in self.accessions:
+                selected_profile, profile_id, proteome_path = self._resolve_proteome_input(
+                    accession,
+                    genome_info[accession][location_idx],
+                )
+                profile_row = self.db_manager.proteomes.get(int(profile_id))
+                checksum = str(profile_row[8]) if profile_row and profile_row[8] is not None else None
+                resolved_inputs[accession] = (selected_profile, profile_id, proteome_path)
+                profile_inputs[accession] = (profile_id, checksum)
+        except Exception as exc:
+            return self.handle_exception(
+                "Failed to resolve proteome profiles for this OrthoFinder run.",
+                {"error": str(exc), "accessions": self.accessions},
+            )
+
         # First, detect if an equivalent run already exists for this accession set
         clean_up_paths = []
         rows = self.db_manager.orthofinder.assert_results_exist(
             self.accessions,
             mcl_inflation=self.mcl_inflation,
+            profile_inputs=profile_inputs,
         )
         previous_run_id = rows[0] if rows else None
         previous_run_location = rows[1] if rows else None
@@ -541,7 +554,11 @@ class OrthoFinderTask(Task):
                                 )
                                 if not old_orthofinder_id:
                                     return self.handle_exception("Error adding existing OrthoFinder run found by scanning folders to database.", {"folder_path": folder_path})
-                                if not self.db_manager.orthofinder.add_accessions(old_orthofinder_id, file_accessions):
+                                if not self.db_manager.orthofinder.add_accessions(
+                                    old_orthofinder_id,
+                                    file_accessions,
+                                    profile_inputs=profile_inputs,
+                                ):
                                     return self.handle_exception("Error adding accessions for existing OrthoFinder run found by scanning folders to database.", {"folder_path": folder_path, "accessions": file_accessions})
                                 previous_run_location = results_folder
                                 self.log(
@@ -603,27 +620,12 @@ class OrthoFinderTask(Task):
         # For proteomes not already in the input directory we need to copy them there 
         for accession in self.accessions:
             location = genome_info[accession][location_idx]
-            selected_profile = None
-            if self.proteome_profile or self.prefer_proteome_profile:
-                try:
-                    selected_profile, _, proteome_path = self._resolve_proteome_input(accession, location)
-                except Exception as exc:  # boundary: required proteome profile resolution failure becomes this task error.
-                    return self._clean_up_and_error(
-                        orthofinder_id,
-                        clean_up_paths,
-                        f"Failed to resolve proteome input for accession {accession}.",
-                        {"accession": accession, "error": str(exc)},
-                    )
-                file = os.path.basename(proteome_path)
-                self.log(
-                    f"Using proteome profile '{selected_profile}' for accession {accession}: {proteome_path}",
-                    "DEBUG",
-                )
-            else:
-                file = self._select_proteome_filename(location, accession)
-                if not file:
-                    return self._clean_up_and_error(orthofinder_id, clean_up_paths, f"No valid proteome files found for accession {accession}.", {"accession": accession})
-                proteome_path = os.path.join(location, file)
+            selected_profile, _, proteome_path = resolved_inputs[accession]
+            file = os.path.basename(proteome_path)
+            self.log(
+                f"Using proteome profile '{selected_profile}' for accession {accession}: {proteome_path}",
+                "DEBUG",
+            )
             staged_name = self._build_staged_proteome_filename(accession, file, selected_profile=selected_profile)
             staged_path = os.path.join(analysis_input_dir, staged_name)
             if file.endswith(".faa") or file.endswith(".fasta"):
@@ -720,7 +722,11 @@ class OrthoFinderTask(Task):
         if not self._ensure_core_set_result_layout(results_folder):
             return self._clean_up_and_error(orthofinder_id, clean_up_paths, "Failed to normalize OrthoFinder result layout.", {"results_folder": results_folder})
 
-        if not self.db_manager.orthofinder.update_location(orthofinder_id, results_folder) or not self.db_manager.orthofinder.add_accessions(orthofinder_id, all_accessions):
+        if not self.db_manager.orthofinder.update_location(orthofinder_id, results_folder) or not self.db_manager.orthofinder.add_accessions(
+            orthofinder_id,
+            all_accessions,
+            profile_inputs=profile_inputs,
+        ):
             return self._clean_up_and_error(orthofinder_id, clean_up_paths, "Error adding OrthoFinder results to database")
         try:
             self.db_manager.artifacts.register(

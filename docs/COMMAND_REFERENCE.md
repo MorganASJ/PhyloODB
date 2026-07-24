@@ -767,7 +767,9 @@ Key options:
 
 Reuse semantics:
 
-- OrthoFinder run reuse now depends on both the accession set and the effective MCL inflation value.
+- accession-driven runs use each accession's default proteome profile unless `--proteome-profile` or `--prefer-proteome-profile` overrides it;
+- OrthoFinder run reuse depends on the accession set, each accession's exact proteome profile ID and checksum, and the effective MCL inflation value;
+- changing a default profile or replacing a profile artifact therefore prevents reuse of results made from the previous inputs;
 - if `--mcl-inflation` is omitted, PhyloODB treats that as the default OrthoFinder clustering setting and reuses only runs recorded with no explicit inflation override;
 - if `--mcl-inflation` is supplied, PhyloODB requires the stored run to have the same value before reusing it.
 - when an old run is discovered by scanning folders, PhyloODB reads `Log.txt` and parses the `Command Line:` entry to recover `-I` when present.
@@ -800,6 +802,7 @@ Rebuild semantics:
 - `--rerun-busco` forces fresh BUSCO child tasks for the reference accessions;
 - `--rerun-orthofinder` forces a fresh OrthoFinder child task for the reference accession set;
 - `--orthofinder-mcl-inflation` is forwarded to the child OrthoFinder run and becomes part of the reuse identity for matching existing OrthoFinder results;
+- BUSCO and OrthoFinder child tasks resolve the same per-accession default or explicitly selected proteome profile;
 - `--rerun-gene-trees` forces fresh replacement IQ-TREE orthogroup trees even when matching trees already exist in `IQ-TREE_Orthogroup_trees`;
 - `--skip-paralog-analysis` accepts exact 1:1 BUSCO/orthogroup families directly after occupancy filtering and skips tree building plus paralog classification;
 - default `--gene-tree-source iqtree` builds canonical core-set trees in `IQ-TREE_Orthogroup_trees` while leaving OrthoFinder `Resolved_Gene_Trees` untouched;

@@ -85,13 +85,26 @@ class OrthoFinderRepository(BaseRepository):
             self.core.execute(f"INSERT INTO OrthoFinder_Results ({col_str}) VALUES ({placeholders})", tuple(values))
             return self.cursor.lastrowid
 
-    def add_accessions(self, orthofinder_id, accessions):
+    def add_accessions(self, orthofinder_id, accessions, profile_inputs=None):
         canonical_accessions = self._canonical_accessions(accessions)
+        profile_inputs = profile_inputs or {}
         with self.core.transaction(operation=f"add OrthoFinder accessions {orthofinder_id}"):
             if canonical_accessions:
                 self.core.executemany(
-                    "INSERT OR IGNORE INTO OrthoFinder_Accessions (orthofinder_id, accession) VALUES (?, ?)",
-                    [(orthofinder_id, acc) for acc in canonical_accessions],
+                    """
+                    INSERT OR REPLACE INTO OrthoFinder_Accessions
+                        (orthofinder_id, accession, proteome_profile_id, proteome_checksum)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            orthofinder_id,
+                            acc,
+                            (profile_inputs.get(acc) or (None, None))[0],
+                            (profile_inputs.get(acc) or (None, None))[1],
+                        )
+                        for acc in canonical_accessions
+                    ],
                 )
             return True
 
@@ -153,6 +166,24 @@ class OrthoFinderRepository(BaseRepository):
         )
         return [row[0] for row in rows]
 
+    def get_profile_inputs(self, orthofinder_id: int):
+        rows = self.core.fetchall(
+            """
+            SELECT accession, proteome_profile_id, proteome_checksum
+            FROM OrthoFinder_Accessions
+            WHERE orthofinder_id = ?
+            ORDER BY accession
+            """,
+            (int(orthofinder_id),),
+        )
+        return {
+            str(row[0]): (
+                int(row[1]) if row[1] is not None else None,
+                str(row[2]) if row[2] is not None else None,
+            )
+            for row in rows
+        }
+
     def replace_accessions(self, orthofinder_id: int, accessions):
         accessions = self._canonical_accessions(accessions)
         with self.core.transaction(operation=f"replace OrthoFinder accessions {orthofinder_id}"):
@@ -182,7 +213,7 @@ class OrthoFinderRepository(BaseRepository):
             self.update_run_metadata(int(row[0]), mcl_inflation=parsed, command_line=command_line)
         return parsed
 
-    def _matching_ready_runs(self, accessions, mcl_inflation=None):
+    def _matching_ready_runs(self, accessions, mcl_inflation=None, profile_inputs=None):
         requested = set(self._canonical_accessions(accessions))
         requested_inflation = self._normalize_mcl_inflation(mcl_inflation)
         if not requested:
@@ -204,14 +235,32 @@ class OrthoFinderRepository(BaseRepository):
             if stored == requested:
                 if self._effective_mcl_inflation(row) != requested_inflation:
                     continue
+                if profile_inputs is not None:
+                    requested_profiles = {
+                        str(acc): (
+                            int(values[0]) if values and values[0] is not None else None,
+                            str(values[1]) if values and values[1] is not None else None,
+                        )
+                        for acc, values in profile_inputs.items()
+                    }
+                    if self.get_profile_inputs(orthofinder_id) != requested_profiles:
+                        continue
                 matches.append(row)
         return matches
 
-    def assert_results_exist(self, accessions, mcl_inflation=None):
-        matches = self._matching_ready_runs(accessions, mcl_inflation=mcl_inflation)
+    def assert_results_exist(self, accessions, mcl_inflation=None, profile_inputs=None):
+        matches = self._matching_ready_runs(
+            accessions,
+            mcl_inflation=mcl_inflation,
+            profile_inputs=profile_inputs,
+        )
         if not matches:
             return None
         return matches[0][0], matches[0][2]
 
-    def get_by_reference_accessions(self, accessions, mcl_inflation=None):
-        return self._matching_ready_runs(accessions, mcl_inflation=mcl_inflation)
+    def get_by_reference_accessions(self, accessions, mcl_inflation=None, profile_inputs=None):
+        return self._matching_ready_runs(
+            accessions,
+            mcl_inflation=mcl_inflation,
+            profile_inputs=profile_inputs,
+        )

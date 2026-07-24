@@ -14,9 +14,10 @@ Phylogenetic Ortholog Database tooling with a registry-driven task system.
 ## Installation
 
 PhyloODB is a Python package, but full end-to-end analyses also require
-external bioinformatics tools including BUSCO, OrthoFinder, BLAST+, MAFFT, and
-IQ-TREE. The bundled `environment.yml` installs both the Python dependencies
-and those command-line tools.
+external bioinformatics tools including BUSCO, OrthoFinder, BLAST+, CD-HIT,
+MAFFT, and IQ-TREE. The bundled `environment.yml` installs both the Python
+dependencies and those command-line tools. The Conda package and executable
+are named `cd-hit` (with a hyphen).
 
 ### Install directly from GitHub
 
@@ -25,7 +26,7 @@ runtime toolchain and install the Python package directly from GitHub:
 
 ```bash
 mamba create -n phyloodb -c conda-forge -c bioconda \
-  python=3.11 pip blast busco mafft orthofinder iqtree
+  python=3.11 pip blast busco cd-hit mafft orthofinder iqtree
 conda activate phyloodb
 pip install "git+https://github.com/MorganASJ/PhyloODB_.git"
 ```
@@ -50,4 +51,5 @@ Check that the command-line entry points are available:
 ```bash
 phyloODB --help
 phyloODB-daemon --help
+cd-hit -h
 ```
