@@ -3215,6 +3215,8 @@ class BuscoRepository(BaseRepository):
         if pipeline_val:
             if pipeline_val == "proteome":
                 clauses.append("LOWER(r.input_mode) = 'protein'")
+            elif pipeline_val == "busco":
+                clauses.append("LOWER(r.pipeline) IN ('miniprot', 'metaeuk', 'augustus')")
             else:
                 clauses.append("LOWER(r.pipeline) = ?")
                 params.append(str(pipeline_val).lower())
