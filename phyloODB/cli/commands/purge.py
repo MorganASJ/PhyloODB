@@ -1531,9 +1531,15 @@ def _plan_and_execute_libraries(manager: DBManager, args: argparse.Namespace) ->
         counts.append(("Libraries", _count_where_in(manager, "Libraries", "library_id", library_ids)))
 
     result.counts = [(name, count) for name, count in counts if count > 0]
+    ids = ", ".join(str(v) for v in library_ids)
+    result.notes.append(f"Matched libraries count={len(library_ids)} ids=[{ids}]")
+    if not drop_library:
+        result.notes.append(
+            "Library definitions are retained by default; use --drop-library to delete the matched Libraries rows."
+        )
+        if not result.counts:
+            result.notes.append("No dependent library data remains to purge.")
     if result.dry_run:
-        ids = ", ".join(str(v) for v in library_ids)
-        result.notes.append(f"Matched libraries count={len(library_ids)} ids=[{ids}]")
         return result
 
     manager.conn.execute("BEGIN IMMEDIATE")
@@ -1897,7 +1903,7 @@ def register_purge_parser(subparsers: argparse._SubParsersAction[argparse.Argume
     libraries.add_argument(
         "--drop-library",
         action="store_true",
-        help="Also delete rows from Libraries (default keeps library definitions).",
+        help="Delete the matched library definitions themselves; without this flag only dependent data is purged.",
     )
     libraries.add_argument(
         "--recursive",
@@ -1947,7 +1953,12 @@ def _render_result(result: PurgeResult) -> None:
         for table, count in result.counts:
             print(f"  {table}: {count}")
     else:
-        print("  No matching rows.")
+        if result.subject == "libraries" and any(
+            note.startswith("Matched libraries count=") for note in result.notes
+        ):
+            print("  No dependent rows matched.")
+        else:
+            print("  No matching rows.")
     if result.files:
         print(f"  Files matched: {len(result.files)}")
         preview = result.files[:5]

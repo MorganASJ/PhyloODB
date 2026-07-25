@@ -23,6 +23,8 @@ from .trees import (
     DEFAULT_MAFFT_TASK_THREADS,
     expected_iqtree_tree_dir,
     expected_mafft_output_path,
+    valid_iqtree_tree,
+    valid_mafft_alignment,
 )
 from .blastdb import resolve_proteome_profile_input
 
@@ -721,7 +723,7 @@ class AddLibraryTask(Task):
             os.path.join(resolved_dir, f"{orthogroup}.nex"),
         ]
         for path in candidates:
-            if os.path.exists(path):
+            if valid_iqtree_tree(path):
                 return path
         return None
 
@@ -792,7 +794,7 @@ class AddLibraryTask(Task):
         for row in self._replacement_tree_rows(exact_pairs_filtered):
             if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]):
                 continue
-            if os.path.exists(row["alignment_path"]):
+            if valid_mafft_alignment(row["alignment_path"], row["raw_fasta"]):
                 continue
             self.queue_subtask(
                 job_type=32,
@@ -814,7 +816,8 @@ class AddLibraryTask(Task):
             return True
         rows = self._replacement_tree_rows(exact_pairs_filtered)
         return bool(rows) and all(
-            self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]) or os.path.exists(row["alignment_path"])
+            self._iqtree_tree_satisfies_orthogroup(row["orthogroup"])
+            or valid_mafft_alignment(row["alignment_path"], row["raw_fasta"])
             for row in rows
         )
 
@@ -826,7 +829,7 @@ class AddLibraryTask(Task):
             if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]):
                 continue
             best_tree = self._find_iqtree_tree(row["tree_dir"], row["prefix"])
-            if best_tree and os.path.exists(best_tree):
+            if best_tree:
                 if self._rerun_gene_trees_effective():
                     pass
                 else:
@@ -840,6 +843,10 @@ class AddLibraryTask(Task):
                     "out_dir": os.path.dirname(row["tree_dir"]),
                     "prefix": row["orthogroup"],
                     "iqtree_flags": self.iqtree_flags,
+                    "force_restart": bool(
+                        self._rerun_gene_trees_effective()
+                        or getattr(self, "_phase_meta", {}).get("gen", 1) > 1
+                    ),
                     "required_threads": int(self.iqtree_threads),
                 },
             )
@@ -856,7 +863,7 @@ class AddLibraryTask(Task):
             if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]):
                 continue
             best_tree = self._find_iqtree_tree(row["tree_dir"], row["prefix"])
-            if not best_tree or not os.path.exists(best_tree):
+            if not best_tree:
                 return False
         return True
 
@@ -866,7 +873,7 @@ class AddLibraryTask(Task):
             os.path.join(tree_dir, f"{prefix}.contree"),
         ]
         for path in candidates:
-            if os.path.exists(path):
+            if valid_iqtree_tree(path):
                 return path
         return None
 
@@ -1545,6 +1552,7 @@ class AddLibraryTask(Task):
                     queue_fn=lambda: self._queue_replacement_mafft_subtasks(exact_pairs_filtered),
                     done_fn=lambda: self._replacement_mafft_done(exact_pairs_filtered),
                     wait_seconds=0,
+                    max_retries=int(self.data.get("mafft_retries", 1)),
                 )
                 if outcome == "ERROR":
                     return "ERROR"
@@ -1556,6 +1564,7 @@ class AddLibraryTask(Task):
                     queue_fn=lambda: self._queue_replacement_iqtree_subtasks(exact_pairs_filtered),
                     done_fn=lambda: self._replacement_iqtree_done(exact_pairs_filtered),
                     wait_seconds=0,
+                    max_retries=int(self.data.get("iqtree_retries", 1)),
                 )
                 if outcome == "ERROR":
                     return "ERROR"

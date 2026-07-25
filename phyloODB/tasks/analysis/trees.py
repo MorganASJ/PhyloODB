@@ -6,10 +6,12 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
+from Bio import Phylo, SeqIO
 from ete3 import Tree
 
 from ..misc.export_library import ExportLibraryTask
@@ -55,6 +57,63 @@ def _ensure_thread_flag(
     return [*inject_tokens, str(max(1, int(thread_count))), *flags]
 
 
+def valid_mafft_alignment(path: str, input_fasta: Optional[str] = None) -> bool:
+    """Return whether *path* is a complete FASTA alignment.
+
+    When the source FASTA is available, also require the aligned output to contain
+    the same record IDs. This prevents a truncated-but-parseable file from being
+    adopted after a machine or filesystem interruption.
+    """
+    if not path or not os.path.isfile(path) or os.path.getsize(path) <= 0:
+        return False
+    try:
+        records = list(SeqIO.parse(path, "fasta"))
+        if not records:
+            return False
+        lengths = {len(record.seq) for record in records}
+        if len(lengths) != 1 or not next(iter(lengths)):
+            return False
+        output_ids = [record.id for record in records]
+        if len(output_ids) != len(set(output_ids)):
+            return False
+        if input_fasta:
+            if not os.path.isfile(input_fasta):
+                return False
+            input_ids = [record.id for record in SeqIO.parse(input_fasta, "fasta")]
+            if not input_ids or sorted(input_ids) != sorted(output_ids):
+                return False
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def valid_iqtree_tree(path: str) -> bool:
+    """Return whether *path* contains a complete, parseable tree."""
+    if not path or not os.path.isfile(path) or os.path.getsize(path) <= 0:
+        return False
+    if Path(path).suffix.lower() in {".nex", ".nexus"}:
+        try:
+            tree = Phylo.read(path, "nexus")
+        except Exception:
+            return False
+        return len(tree.get_terminals()) >= 2
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            newick = handle.read().strip()
+    except (OSError, UnicodeError):
+        return False
+    if not newick or not newick.endswith(";"):
+        return False
+    for tree_format in (0, 1):
+        try:
+            tree = Tree(newick, format=tree_format)
+        except Exception:
+            continue
+        if len(tree.get_leaf_names()) >= 2:
+            return True
+    return False
+
+
 def _read_best_tree_path(tree_dir: str, prefix: str) -> Optional[str]:
     if not os.path.isdir(tree_dir):
         return None
@@ -63,11 +122,13 @@ def _read_best_tree_path(tree_dir: str, prefix: str) -> Optional[str]:
         os.path.join(tree_dir, f"{prefix}.contree"),
     ]
     for path in candidates:
-        if os.path.exists(path):
+        if valid_iqtree_tree(path):
             return path
     for filename in sorted(os.listdir(tree_dir)):
         if filename.endswith(".treefile") or filename.endswith(".contree"):
-            return os.path.join(tree_dir, filename)
+            path = os.path.join(tree_dir, filename)
+            if valid_iqtree_tree(path):
+                return path
     return None
 
 
@@ -118,8 +179,27 @@ def run_mafft_alignment(
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"MAFFT failed: {result.stderr.strip()}")
-    with open(output_path, "w", encoding="utf-8") as handle:
-        handle.write(result.stdout)
+    temporary_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=out_dir,
+            prefix=f".{os.path.basename(output_path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = handle.name
+            handle.write(result.stdout)
+        if not valid_mafft_alignment(temporary_path, str(input_fasta)):
+            raise RuntimeError("MAFFT produced an invalid or incomplete alignment.")
+        os.replace(temporary_path, output_path)
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
     return output_path, command
 
 
@@ -156,6 +236,8 @@ def run_iqtree_analysis(
         inject_tokens=["-nt"],
         thread_count=thread_count if thread_count is not None else task.REQUIRED_THREADS,
     )
+    if task.payload_bool("force_restart", False) and "-redo" not in flags and "--redo" not in flags:
+        flags.append("-redo")
     command = [iqtree_path, "-s", str(input_alignment), "--prefix", os.path.join(tree_dir, token), *flags]
     task.log(f"Running IQ-TREE: {' '.join(command)}", "DEBUG")
     result = subprocess.run(command, capture_output=True, text=True)
@@ -176,17 +258,33 @@ class MafftTask(Task):
             return self.handle_exception("Input FASTA does not exist.", {"input_fasta": input_fasta})
         if not out_dir:
             return self.handle_exception("Output directory is required.", {})
-        self.log(f"Running MAFFT on {os.path.basename(input_fasta)}.", "INFO")
-        try:
-            output_path, command = run_mafft_alignment(
-                self,
-                input_fasta=input_fasta,
-                out_dir=out_dir,
-                output_name=output_name,
-                mafft_flags=self.data.get("mafft_flags"),
+        output_path = expected_mafft_output_path(
+            input_fasta=input_fasta,
+            out_dir=out_dir,
+            output_name=output_name,
+        )
+        command: list[str] = []
+        if valid_mafft_alignment(output_path, input_fasta):
+            self.log(f"Using completed MAFFT alignment at {output_path}.", "INFO")
+        else:
+            if os.path.exists(output_path):
+                self.log(f"Existing MAFFT alignment is invalid; rebuilding {output_path}.", "WARNING")
+            self.log(f"Running MAFFT on {os.path.basename(input_fasta)}.", "INFO")
+            try:
+                output_path, command = run_mafft_alignment(
+                    self,
+                    input_fasta=input_fasta,
+                    out_dir=out_dir,
+                    output_name=output_name,
+                    mafft_flags=self.data.get("mafft_flags"),
+                )
+            except Exception as exc:  # boundary: external MAFFT/filesystem failure becomes this task error
+                return self.handle_exception("Failed to run MAFFT.", {"error": str(exc), "input_fasta": input_fasta})
+        if not valid_mafft_alignment(output_path, input_fasta):
+            return self.handle_exception(
+                "MAFFT output is invalid or incomplete.",
+                {"input_fasta": input_fasta, "output_path": output_path},
             )
-        except Exception as exc:  # boundary: external MAFFT/filesystem failure becomes this task error
-            return self.handle_exception("Failed to run MAFFT.", {"error": str(exc), "input_fasta": input_fasta})
         try:
             self.db_manager.artifacts.register(
                 owner_type="task",
@@ -210,19 +308,45 @@ class IQTreeTask(Task):
         prefix = self.data.get("prefix")
         if not input_alignment or not os.path.exists(input_alignment):
             return self.handle_exception("Input alignment does not exist.", {"input_alignment": input_alignment})
+        if not valid_mafft_alignment(input_alignment):
+            return self.handle_exception("Input alignment is invalid or incomplete.", {"input_alignment": input_alignment})
         if not out_dir:
             return self.handle_exception("Output directory is required.", {})
-        self.log(f"Running IQ-TREE on {os.path.basename(input_alignment)}.", "INFO")
-        try:
-            tree_dir, best_tree, command = run_iqtree_analysis(
-                self,
-                input_alignment=input_alignment,
-                out_dir=out_dir,
-                prefix=prefix,
-                iqtree_flags=self.data.get("iqtree_flags"),
+        tree_dir, token = expected_iqtree_tree_dir(
+            input_alignment=input_alignment,
+            out_dir=out_dir,
+            prefix=prefix,
+        )
+        force_restart = self.payload_bool("force_restart", False)
+        best_tree = _read_best_tree_path(tree_dir, token)
+        command: list[str] = []
+        if best_tree and not force_restart:
+            self.log(f"Using completed IQ-TREE tree at {best_tree}.", "INFO")
+        else:
+            if force_restart:
+                self.log(f"Rebuilding IQ-TREE output at {tree_dir}.", "WARNING")
+                # Consume the clean-restart request before launching IQ-TREE. If the
+                # machine dies during this attempt, startup recovery can resume the
+                # new IQ-TREE checkpoint instead of repeatedly applying -redo.
+                persisted_data = dict(self.data)
+                persisted_data["force_restart"] = False
+                self.db_manager.tasks.update_data(self.task_id, data=persisted_data)
+            self.log(f"Running IQ-TREE on {os.path.basename(input_alignment)}.", "INFO")
+            try:
+                tree_dir, best_tree, command = run_iqtree_analysis(
+                    self,
+                    input_alignment=input_alignment,
+                    out_dir=out_dir,
+                    prefix=prefix,
+                    iqtree_flags=self.data.get("iqtree_flags"),
+                )
+            except Exception as exc:  # boundary: external IQ-TREE/filesystem failure becomes this task error
+                return self.handle_exception("Failed to run IQ-TREE.", {"error": str(exc), "input_alignment": input_alignment})
+        if not valid_iqtree_tree(best_tree):
+            return self.handle_exception(
+                "IQ-TREE output is invalid or incomplete.",
+                {"input_alignment": input_alignment, "tree_path": best_tree},
             )
-        except Exception as exc:  # boundary: external IQ-TREE/filesystem failure becomes this task error
-            return self.handle_exception("Failed to run IQ-TREE.", {"error": str(exc), "input_alignment": input_alignment})
         try:
             self.db_manager.artifacts.register(
                 owner_type="task",
@@ -300,7 +424,7 @@ class BuildBuscoTreesTask(ExportLibraryTask):
     def _queue_mafft_subtasks(self) -> bool:
         queued = False
         for row in self._family_rows():
-            if os.path.exists(row["alignment_path"]):
+            if valid_mafft_alignment(row["alignment_path"], row["raw_fasta"]):
                 continue
             self.queue_subtask(
                 job_type=32,
@@ -319,13 +443,16 @@ class BuildBuscoTreesTask(ExportLibraryTask):
 
     def _mafft_done(self) -> bool:
         rows = self._family_rows()
-        return bool(rows) and all(os.path.exists(row["alignment_path"]) for row in rows)
+        return bool(rows) and all(
+            valid_mafft_alignment(row["alignment_path"], row["raw_fasta"])
+            for row in rows
+        )
 
     def _queue_iqtree_subtasks(self) -> bool:
         queued = False
         for row in self._family_rows():
             best_tree = _read_best_tree_path(row["tree_dir"], row["prefix"])
-            if best_tree and os.path.exists(best_tree):
+            if best_tree:
                 continue
             self.queue_subtask(
                 job_type=33,
@@ -336,6 +463,7 @@ class BuildBuscoTreesTask(ExportLibraryTask):
                     "out_dir": self.trees_dir,
                     "prefix": row["family_id"],
                     "iqtree_flags": self.data.get("iqtree_flags"),
+                    "force_restart": bool(getattr(self, "_phase_meta", {}).get("gen", 1) > 1),
                     "required_threads": int(self.iqtree_threads),
                 },
             )
@@ -348,7 +476,7 @@ class BuildBuscoTreesTask(ExportLibraryTask):
             return False
         for row in rows:
             best_tree = _read_best_tree_path(row["tree_dir"], row["prefix"])
-            if not best_tree or not os.path.exists(best_tree):
+            if not best_tree:
                 return False
         return True
 
@@ -404,6 +532,7 @@ class BuildBuscoTreesTask(ExportLibraryTask):
             queue_fn=self._queue_mafft_subtasks,
             done_fn=self._mafft_done,
             wait_seconds=0,
+            max_retries=int(self.data.get("mafft_retries", 1)),
         )
         if outcome == "ERROR":
             return "ERROR"
@@ -415,6 +544,7 @@ class BuildBuscoTreesTask(ExportLibraryTask):
             queue_fn=self._queue_iqtree_subtasks,
             done_fn=self._iqtree_done,
             wait_seconds=0,
+            max_retries=int(self.data.get("iqtree_retries", 1)),
         )
         if outcome == "ERROR":
             return "ERROR"
