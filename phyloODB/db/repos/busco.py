@@ -2100,6 +2100,12 @@ class BuscoRepository(BaseRepository):
             return True
         row_pipeline_norm = cls._normalize_pipeline(row_pipeline)
         row_mode_norm = cls._normalize_input_mode(row_input_mode)
+        if requested_norm == "busco":
+            # "busco" denotes a run produced by BUSCO itself, irrespective of
+            # which BUSCO predictor was recorded.  Keep derived OrthoFinder
+            # runs out of this group: add-library uses this alias when checking
+            # that its source BUSCO evidence exists.
+            return row_pipeline_norm in {"miniprot", "metaeuk", "augustus"}
         if requested_norm == "proteome":
             return row_mode_norm == "protein"
         return row_pipeline_norm == requested_norm
