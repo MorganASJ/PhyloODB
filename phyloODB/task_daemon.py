@@ -193,8 +193,12 @@ class TaskDaemon(Task):
                     if subtasks:
                         sub_statuses = [t[2] for t in subtasks]
                         all_complete = all(s == "C" for s in sub_statuses)
-                        has_error = any(s == "E" for s in sub_statuses)
-                        has_active = any(s in ("P", "R") for s in sub_statuses)
+                        has_error = any(s in ("E", "B") for s in sub_statuses)
+                        # A suspended child is still unfinished: it may be
+                        # waiting for its own descendants.  Resuming the parent
+                        # while that subtree is active lets later phases race
+                        # ahead of required nested work.
+                        has_active = any(s in ("P", "R", "S") for s in sub_statuses)
                         if not (all_complete or (has_error and not has_active)):
                             # Still pending subtasks or retry in progress; skip for now
                             continue

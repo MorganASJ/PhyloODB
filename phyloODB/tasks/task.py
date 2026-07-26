@@ -1051,8 +1051,10 @@ class Task(ABC):
                 return {"has_active": False, "has_error": False, "all_complete": False}
             statuses = [t[2] for t in subtasks]
             return {
-                "has_active": any(s in ("P", "R") for s in statuses),
-                "has_error": any(s == "E" for s in statuses),
+                # Suspended children may have active descendants and therefore
+                # remain unfinished from the parent phase's perspective.
+                "has_active": any(s in ("P", "R", "S") for s in statuses),
+                "has_error": any(s in ("E", "B") for s in statuses),
                 "all_complete": all(s == "C" for s in statuses),
             }
         def _done_for_phase(phase_tasks) -> bool:
@@ -1140,31 +1142,44 @@ class Task(ABC):
                 return "ERROR"
             # checkpoint to this stage so resumes land here; persist gen
             self.checkpoint(stage=stage, checkpoint_data={phase_gen_key: self.data[phase_gen_key]})
-            # brief wait for fast subtasks
-            decision = not queued or self.wait_for_subtasks(wait_seconds)
-            if decision is True:
-                # If work finished quickly: check completion; if not satisfied, treat as incomplete now
-                try:
-                    phase_tasks = _filter_phase_children(_current_gen())
-                    if _done_for_phase(phase_tasks):
-                        _clear_phase_meta()
-                        return "CONTINUE"
-                except Exception as e:  # boundary: caller-supplied completion predicate
-                    self.handle_exception(e, context="Error evaluating done_fn")
+            # Inspect only this phase generation.  The legacy global subtask
+            # waiter sees failed children from older retries/stages and can
+            # incorrectly fail a newly queued phase.
+            if queued and int(wait_seconds or 0) > 0:
+                time.sleep(int(wait_seconds))
+            phase_tasks = _filter_phase_children(_current_gen())
+            st = _state(phase_tasks)
+            try:
+                if _done_for_phase(phase_tasks):
                     _clear_phase_meta()
-                    return "ERROR"
-                # Not satisfied: handle as incomplete outcome immediately (retry or error)
-                phase_tasks = _filter_phase_children(_current_gen())
-                outcome = _queue_retry_or_error("incomplete outcome", use_incomplete_msg=True, phase_tasks=phase_tasks, allow_retry=retry_incomplete)
+                    return "CONTINUE"
+            except Exception as e:  # boundary: caller-supplied completion predicate
+                self.handle_exception(e, context="Error evaluating done_fn")
                 _clear_phase_meta()
-                return outcome
-            if decision == "ERROR":
-                # Retry or error using current generation's children
-                phase_tasks = _filter_phase_children(_current_gen())
-                return _queue_retry_or_error("error", use_incomplete_msg=False, phase_tasks=phase_tasks, allow_retry=True)
-            # decision is False -> suspended awaiting children
+                return "ERROR"
+
+            if st["has_active"]:
+                self.update_status("S")
+                self.log("Suspended awaiting active phase subtasks...", level="DEBUG", category="SCHEDULER")
+                _clear_phase_meta()
+                return False
+
+            if st["has_error"]:
+                return _queue_retry_or_error(
+                    "error",
+                    use_incomplete_msg=False,
+                    phase_tasks=phase_tasks,
+                    allow_retry=True,
+                )
+
+            outcome = _queue_retry_or_error(
+                "incomplete outcome",
+                use_incomplete_msg=True,
+                phase_tasks=phase_tasks,
+                allow_retry=retry_incomplete,
+            )
             _clear_phase_meta()
-            return False
+            return outcome
 
         # Resumed or reentered this phase: consider only current generation
         gen = _current_gen() or 1

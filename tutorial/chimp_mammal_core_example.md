@@ -1,4 +1,4 @@
-# Tutorial: Building a Mammal Core Dataset with Chimpanzee-Centred Sampling
+# Tutorial: Building a Phylogenomic dataset for Primates
 
 In this tutorial we will go through the steps of building a dataset for primates. This will involve inspecting the information available online and choosing which assemblies we wish to download and analyse. We will also go through the steps to build a primate core set informed by mammalian outgroups although, to avoid us all competing to run the analysis, I have done the long-running steps for us already.
 
@@ -239,6 +239,27 @@ GCF_054371585.1 Giraffa tippelskirchi
 GCF_902635505.1 Sarcophilus harrisiis
 ```
 
+```text
+Metazoa
+└─ Mammalia
+  ├─────────────────────────Tachyglossus aculeatus
+  └─ Theria
+    ├─ Boreoeutheria
+    │ ├─ Euarchontoglires
+    │ │ ├───────────────────Rattus norvegicus
+    │ │ └─ Primates
+    │ │   ├─ Simiiformes
+    │ │   │ ├─ Catarrhini
+    │ │   │ │ ├─────────────Macaca mulatta
+    │ │   │ │ └─────────────Homo sapiens
+    │ │   │ └───────────────Callithrix jacchus
+    │ │   └─────────────────Eulemur rufifrons
+    │ └─ Laurasiatheria
+    │   ├───────────────────Giraffa tippelskirchi
+    │   └───────────────────Neogale vison
+    └───────────────────────Sarcophilus harrisii
+```
+
 ## 8. Download the selected assemblies
 
 **From this point I would advise not entering commands that start work with `run` or `queue`. Downloading and running the analysis could take several hours and the machine cannot handle everyone doing this at once. Have a look at the commands and we can view the state of the example database instead.**
@@ -380,36 +401,20 @@ phyloODB metazoa.db queue paralog-removal \
 
 ## 13. Decontamination approaches
 
-### 13.1 Internal decontamination
-
-Internal decontamination compares the BUSCO hits within the selected dataset and asks whether each assembly mostly matches the clade it is expected to match. This is often the best first-pass screen because it does not require a separate external reference database.
-
-```bash
-phyloODB metazoa.db run internal-decontamination \
-  --library-name primate_core \
-  --targets @PRIMATES \
-  --rank order \
-  --hit-window 8 \
-  --off-clade-fraction 0.05 \
-  --report-path results/internal_decontamination/primate_internal
-```
-
-### 13.2 Reference-based decontamination
-
-We can also use the decontamination pipeline to compare BUSCO results against the results of references. This can be done to ensure that the top comparisons within a window match what we expect them to. If they match with an off-clade reference, then we may wish to exclude these from the export.
+We can also use the decontamination pipeline to compare BUSCO results against the results of references. This can be done to ensure that the top comparisons within a window match what we expect them to. If they match with an off-clade reference, then we may wish to exclude these from the export. E.g. in this example the refs may be Primates mammals, as well as humans and parasites.
 
 ```bash
 phyloODB metazoa.db run decontamination \
   --library-name primate_core \
   --targets @PRIMATES \
-  --refs @PRIMATE_REFS \
-  --rank order \
+  --refs @PRIMATE_DECONT_REFS \
+  --rank phylum \
   --off-clade-fraction 0.10 \
   --min-buscos 20 \
   --report-path results/decontamination/primate_reference
 ```
 
-In this command we would be comparing PRIMATES to PRIMATE_REFS and ensuring that they match references with the correct order.
+In this command we would be comparing PRIMATES to PRIMATE_DECONT_REFS and ensuring that they match references with the correct phylum.
 
 ## 14. Export the final dataset
 
@@ -431,7 +436,26 @@ To view output:
 
 ## 15. Build BUSCO trees directly
 
-We can ask PhyloODB to pass exported BUSCOs directly to IQ-TREE for processing:
+We can ask PhyloODB to pass exported BUSCOs directly to IQ-TREE for processing. In this example we export a subset order HOMINOIDEA to build trees.
+
+```text
+Metazoa
+└─ Hominoidea
+  ├─ Hominidae
+  │ ├─ Homininae
+  │ │ ├────────────Gorilla gorilla gorilla
+  │ │ ├────────────Homo sapiens
+  │ │ └─ Pan
+  │ │   ├──────────Pan paniscus
+  │ │   └──────────Pan troglodytes
+  │ └─ Pongo
+  │   ├────────────Pongo abelii
+  │   └────────────Pongo pygmaeus
+  └─ Hylobatidae
+    ├──────────────Hylobates moloch
+    ├──────────────Nomascus leucogenys
+    └──────────────Symphalangus syndactylus
+```
 
 ```bash
 phyloODB metazoa.db queue build-busco-trees \
