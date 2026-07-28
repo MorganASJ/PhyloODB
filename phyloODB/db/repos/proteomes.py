@@ -364,9 +364,11 @@ class ProteomeRepository(BaseRepository):
     def ensure_raw_profile(self, accession: str, *, path: Optional[str] = None, is_default: bool = False) -> Optional[int]:
         existing = self.get_profile(str(accession), RAW_PROFILE)
         if existing and existing[5] is not None:
-            if is_default:
-                self.set_default_profile(str(accession), profile_id=int(existing[0]))
-            return int(existing[0])
+            existing_path = self.resolve_path(existing)
+            if existing_path and os.path.isfile(existing_path):
+                if is_default:
+                    self.set_default_profile(str(accession), profile_id=int(existing[0]))
+                return int(existing[0])
         genome_path = self.manager.genomes.resolve_path(str(accession))
         candidate = str(path or "").strip() or None
         if candidate is None and genome_path and os.path.isdir(genome_path):

@@ -6,6 +6,7 @@ import random
 import threading
 import shutil
 import gzip
+import zlib
 import json
 import hashlib
 from datetime import datetime
@@ -1027,7 +1028,7 @@ class DownloadAssembliesTask(Task):
                             for _chunk in iter(lambda: handle.read(1024 * 1024), b""):
                                 pass
                         return True
-                    except (OSError, EOFError, gzip.BadGzipFile) as exc:
+                    except (OSError, EOFError, gzip.BadGzipFile, zlib.error) as exc:
                         self.log(f"Gzip validation failed for {path}: {exc}", "ERROR")
                         return False
 
@@ -1097,7 +1098,9 @@ class DownloadAssembliesTask(Task):
                             return (accession, 4, False, False, path)  # General error, no protein
 
                 attempts = self.download_retries + 1
-                for attempt in range(1, attempts + 1):
+                integrity_retry_added = False
+                attempt = 1
+                while attempt <= attempts:
                     try:
                         ncbi_helper.download_assembly(accession=accession, location=path, uid=None, protein=True)
                         self.log(f"Successfully downloaded assembly for {accession} to {path}.", "DEBUG")
@@ -1114,6 +1117,14 @@ class DownloadAssembliesTask(Task):
                                     os.remove(bad)
                                 except OSError:
                                     pass
+                            if not integrity_retry_added:
+                                integrity_retry_added = True
+                                attempts += 1
+                                self.log(
+                                    f"Downloaded files for {accession} failed gzip validation; "
+                                    "automatically redownloading once.",
+                                    "WARNING",
+                                )
                             raise FnaDownloadError(f"Validation failed for files: {', '.join(invalid)}")
 
                         protein_present = any(fname.endswith(".faa.gz") for fname in os.listdir(path)) if os.path.isdir(path) else False
@@ -1148,6 +1159,7 @@ class DownloadAssembliesTask(Task):
                         if attempt == attempts:
                             return (accession, 4, False, False, path)
                     # If here, retry loop continues
+                    attempt += 1
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_concurrent, thread_name_prefix="DL_") as executor:
                 futures = {
@@ -1177,8 +1189,13 @@ class DownloadAssembliesTask(Task):
                         else:
                             try:
                                 _register_genome_file_artifacts(self, accession, target_path)
+                                self.db_manager.proteomes.sync_profiles_from_filesystem(
+                                    accession,
+                                    target_path,
+                                    set_default=True,
+                                )
                             except Exception as exc:  # boundary: collect one failed artifact registration without hiding batch status
-                                self.collect_batch_failure(accession, "register downloaded genome artifacts", exc)
+                                self.collect_batch_failure(accession, "synchronise downloaded genome artifacts and proteome profiles", exc)
                                 status_by_accession[accession] = 5
 
             if not (status_by_accession and all(s == 0 for s in status_by_accession.values())):

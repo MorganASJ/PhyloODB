@@ -1,6 +1,7 @@
 import os
 import glob
 import gzip
+import zlib
 import shutil
 import csv
 import json
@@ -520,7 +521,7 @@ class VerifyAssemblyTask(Task):
                 for _chunk in iter(lambda: handle.read(1024 * 1024), b""):
                     pass
             return True
-        except (OSError, EOFError, gzip.BadGzipFile) as exc:
+        except (OSError, EOFError, gzip.BadGzipFile, zlib.error) as exc:
             self.log(f"Gzip validation failed for {path}: {exc}", "ERROR")
             return False
 

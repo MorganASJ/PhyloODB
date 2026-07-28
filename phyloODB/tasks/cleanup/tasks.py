@@ -221,7 +221,8 @@ class PrepareProteomeTask(Task):
                 try:
                     result = future.result()
                 except Exception as exc:  # boundary: isolate one proteome-preparation worker failure
-                    result = {"ok": False, "status": "exception", "error": str(exc), "accession": acc}
+                    error = f"{type(exc).__name__}: {exc}"
+                    result = {"ok": False, "status": "exception", "error": error, "accession": acc}
                 results[acc] = result
 
         for accession, res in results.items():
@@ -327,10 +328,20 @@ class PrepareProteomeTask(Task):
                     "DEBUG",
                 )
             else:
-                self.log(f"{acc}: {status}", "DEBUG" if res.get("ok") else "ERROR")
+                error = str(res.get("error") or "").strip()
+                detail = f": {error}" if error else ""
+                self.log(f"{acc}: {status}{detail}", "DEBUG" if res.get("ok") else "ERROR")
 
         if failed:
-            failed_items = [f"{acc}:{res.get('status')}" for acc, res in results.items() if not res.get("ok")]
+            failed_items = []
+            for acc, res in results.items():
+                if res.get("ok"):
+                    continue
+                failure = f"{acc}:{res.get('status')}"
+                error = str(res.get("error") or "").strip()
+                if error:
+                    failure = f"{failure}: {error}"
+                failed_items.append(failure)
             return self.handle_exception(
                 f"Proteome preparation failed for {failed}/{len(selected)} assemblies.",
                 {"failures": failed_items[:50], "total_failures": failed},

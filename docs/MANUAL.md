@@ -1353,7 +1353,7 @@ When automatic `prepare-proteome` work is queued, it is treated as a required su
 phyloODB my_project.db queue prepare-proteome \
   --accessions @PRIMATE_REFS \
   --profile-name gff_cdhit98 \
-  --no-skip-cdhit \
+  --cdhit \
   --cdhit-identity 0.98
 ```
 

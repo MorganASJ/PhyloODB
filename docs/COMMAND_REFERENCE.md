@@ -408,8 +408,9 @@ When recipe options are omitted, `prepare-proteome` reads the database
 - `DEFAULT_PROTEOME_USE_CDHIT=false`
 - `DEFAULT_PROTEOME_CDHIT_IDENTITY=0.96`
 
-Explicit flags such as `--skip-gff`, `--skip-cdhit`, `--no-skip-cdhit`, and
-`--cdhit-identity` override these defaults for one run.
+Explicit `--gff` / `--skip-gff` and `--cdhit` / `--skip-cdhit` flags override
+these defaults for one run. If neither flag for a feature is supplied, the
+corresponding project environment variable remains authoritative.
 
 Examples:
 
@@ -610,7 +611,7 @@ Key options:
 - `--accessions` or `--taxid`
 - `--protein`
 - `--max-concurrent`
-- `--force-redownload`
+- `--redownload` or `--force`
 - `--download-retries`
 - `--rank`, `--quantity`
 - `--use-busco`
@@ -709,8 +710,8 @@ Key options:
 
 - `--accessions`
 - `--profile-name`
-- `--skip-gff`
-- `--skip-cdhit` / `--no-skip-cdhit`
+- `--gff` / `--skip-gff`
+- `--cdhit` / `--skip-cdhit`
 - `--cdhit-identity`
 - `--set-default` / `--no-set-default`
 

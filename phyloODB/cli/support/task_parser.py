@@ -280,7 +280,33 @@ def _add_payload_arguments(
             continue
 
         if base_type is bool or (isinstance(base_type, type) and issubclass(base_type, bool)):
-            if name in {"include_paralog_filtering_in_score", "include_decontamination_in_score"}:
+            if name == "force_redownload":
+                target.add_argument(
+                    "--redownload",
+                    "--force",
+                    action="store_true",
+                    default=argparse.SUPPRESS,
+                    dest=name,
+                    help=help_text,
+                )
+            elif name in {"skip_gff", "skip_cdhit"}:
+                feature = name.removeprefix("skip_")
+                toggle = target.add_mutually_exclusive_group()
+                toggle.add_argument(
+                    f"--{feature}",
+                    action="store_false",
+                    default=argparse.SUPPRESS,
+                    dest=name,
+                    help=f"Enable {feature.upper()} proteome filtering.",
+                )
+                toggle.add_argument(
+                    f"--skip-{feature}",
+                    action="store_true",
+                    default=argparse.SUPPRESS,
+                    dest=name,
+                    help=f"Disable {feature.upper()} proteome filtering.",
+                )
+            elif name in {"include_paralog_filtering_in_score", "include_decontamination_in_score"}:
                 target.add_argument(
                     *_payload_option_strings(name, option),
                     action="store_true",
