@@ -548,6 +548,50 @@ class VerifyAssemblyTask(Task):
                 uncompressed.append(os.path.join(folder, fname))
         return compressed, uncompressed
 
+    def _migrate_legacy_root_profiles(
+        self,
+        accession: str,
+        folder: str,
+        compressed: List[str],
+        uncompressed: List[str],
+        actions: List[str],
+    ) -> Tuple[List[str], List[str]]:
+        """Move legacy named derived proteomes out of the raw-proteome directory."""
+
+        if not self.repair:
+            return compressed, uncompressed
+        pattern = re.compile(r"^(clean_default|gff|gff_only|cdhit\d+|gff_cdhit\d+)\.faa(?:\.gz)?$", re.IGNORECASE)
+        profiles_dir = os.path.join(folder, "proteome_profiles")
+        kept_compressed: List[str] = []
+        kept_uncompressed: List[str] = []
+        for source, is_compressed in [(p, True) for p in compressed] + [(p, False) for p in uncompressed]:
+            match = pattern.match(os.path.basename(source))
+            if not match:
+                (kept_compressed if is_compressed else kept_uncompressed).append(source)
+                continue
+            profile_name = match.group(1)
+            target = os.path.join(profiles_dir, f"{profile_name}.faa.gz")
+            try:
+                os.makedirs(profiles_dir, exist_ok=True)
+                if os.path.exists(target):
+                    if not self._validate_gzip(target):
+                        raise OSError(f"existing profile target is not a valid gzip: {target}")
+                elif is_compressed:
+                    os.replace(source, target)
+                else:
+                    with open(source, "rb") as f_in, gzip.open(target, "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                    if not self._validate_gzip(target):
+                        raise OSError(f"compressed profile target failed validation: {target}")
+                if os.path.exists(source):
+                    os.remove(source)
+                actions.append(f"migrated_legacy_profile:{os.path.basename(source)}->{os.path.basename(target)}")
+                self._append_comment(accession, f"Migrated legacy proteome profile {source} to {target}")
+            except OSError as exc:
+                self.log(f"{accession}: failed to migrate legacy proteome profile {source}: {exc}", "WARNING")
+                (kept_compressed if is_compressed else kept_uncompressed).append(source)
+        return kept_compressed, kept_uncompressed
+
     def _get_isoforms_cleaned_flag(self, accession: str) -> bool:
         try:
             row = self.db_manager.proteomes.get_default_cleaned_profile(str(accession))
@@ -612,7 +656,7 @@ class VerifyAssemblyTask(Task):
 
     def _queue_reacquire(self, accessions: List[str]):
         if not accessions:
-            return
+            return False
         parent_id = self.task_id
         data = {
             "accessions": accessions,
@@ -622,6 +666,7 @@ class VerifyAssemblyTask(Task):
         }
         self.queue_subtask(job_type=2, status="P", priority=1, data=data)
         self.log(f"Queued reacquire download for {len(accessions)} accessions", "INFO")
+        return True
 
     def _process_assembly_accession(self, acc: str, genome_dir: str, split_isolated: bool) -> Dict[str, Any]:
         folder = self.db_manager.genomes.get_path(acc) or os.path.join(genome_dir, acc)
@@ -642,6 +687,8 @@ class VerifyAssemblyTask(Task):
             except Exception as exc:  # boundary: repair pre-mark failure is logged and verification continues.
                 self.log(f"{acc}: failed to pre-mark assembly inactive during repair: {exc}", "WARNING")
 
+        actions: List[str] = []
+        reacquire_reasons: List[str] = []
         nuc_gz: List[str] = []
         nuc_plain: List[str] = []
         prot_gz: List[str] = []
@@ -650,14 +697,19 @@ class VerifyAssemblyTask(Task):
         if folder_exists:
             nuc_gz, nuc_plain = self._find_files(folder, ".fna")
             prot_gz, prot_plain = self._find_files(folder, ".faa")
+            prot_gz, prot_plain = self._migrate_legacy_root_profiles(
+                acc,
+                folder,
+                prot_gz,
+                prot_plain,
+                actions,
+            )
             for fname in os.listdir(folder):
                 low = fname.lower()
                 if low.endswith((".fna", ".fna.gz", ".faa", ".faa.gz", ".gff", ".gff.gz", ".gff3", ".gff3.gz")):
                     continue
                 other_files.append(fname)
 
-        actions: List[str] = []
-        reacquire_reasons: List[str] = []
         row: Dict[str, str] = {
             "accession": acc,
             "folder": folder,
@@ -762,14 +814,14 @@ class VerifyAssemblyTask(Task):
             nuc_ok = bool(good)
         elif nuc_plain:
             nuc_ok = True
-            if self.tidy and self.repair:
+            if self.repair:
                 gz_created = self._compress_if_needed(nuc_plain[0])
                 if gz_created and self._validate_gzip(gz_created):
                     nuc_gz.append(gz_created)
                     actions.append(f"compressed_nuc:{os.path.basename(gz_created)}")
                     self._append_comment(acc, f"Compressed nucleotide to {gz_created}")
 
-        if self.tidy and self.repair and nuc_gz and nuc_plain:
+        if self.repair and nuc_gz and nuc_plain:
             nuc_gz_bases = {self._strip_ext(p, ".fna") for p in nuc_gz}
             kept = []
             for p in nuc_plain:
@@ -799,14 +851,14 @@ class VerifyAssemblyTask(Task):
             prot_ok = bool(goodp)
         elif prot_plain:
             prot_ok = True
-            if self.tidy and self.repair:
+            if self.repair:
                 gz_created = self._compress_if_needed(prot_plain[0])
                 if gz_created and self._validate_gzip(gz_created):
                     prot_gz.append(gz_created)
                     actions.append(f"compressed_prot:{os.path.basename(gz_created)}")
                     self._append_comment(acc, f"Compressed protein to {gz_created}")
 
-        if self.tidy and self.repair and prot_gz and prot_plain:
+        if self.repair and prot_gz and prot_plain:
             prot_gz_bases = {self._strip_ext(p, ".faa") for p in prot_gz}
             kept = []
             for p in prot_plain:
@@ -822,7 +874,7 @@ class VerifyAssemblyTask(Task):
             prot_plain = kept
 
         gff_files = self._find_gff_files(folder) if folder_exists else []
-        if self.tidy and self.repair and gff_files:
+        if self.repair and gff_files:
             gff_gz = [p for p in gff_files if p.endswith(".gz")]
             gff_plain = [p for p in gff_files if not p.endswith(".gz")]
             for p in list(gff_plain):
@@ -971,7 +1023,26 @@ class VerifyAssemblyTask(Task):
         return finalized
 
     def run(self):
-        if self.stage >= 1:
+        reacquire_targets = list(self.data.get("_verify_reacquire_targets", []) or [])
+        reacquire_phase_complete = False
+        if self.stage >= 1 and reacquire_targets:
+            outcome = self.manage_subtasks(
+                stage=1,
+                queue_fn=lambda: self._queue_reacquire(reacquire_targets),
+                done_fn=None,
+                wait_seconds=0,
+                retry_key=None,
+                max_retries=0,
+                incomplete_message_fn=lambda: ("Verify reacquire download subtask did not complete.", ""),
+                retry_incomplete=False,
+            )
+            if outcome == "ERROR":
+                return "ERROR"
+            if outcome is False:
+                return False
+            reacquire_phase_complete = True
+
+        if self.stage >= 2:
             clean_targets = list(self.data.get("_verify_clean_targets", []) or [])
             # Re-check DB state on resume so stale checkpoint payloads do not re-clean already-cleaned assemblies.
             clean_targets = [acc for acc in clean_targets if not self._get_isoforms_cleaned_flag(acc)]
@@ -1002,7 +1073,7 @@ class VerifyAssemblyTask(Task):
                 return True
 
             outcome = self.manage_subtasks(
-                stage=1,
+                stage=2,
                 queue_fn=queue_clean_subtask,
                 done_fn=None,
                 wait_seconds=0,
@@ -1124,8 +1195,22 @@ class VerifyAssemblyTask(Task):
         if worker_errors:
             to_reacquire = []
 
-        if self.repair and self.reacquire and to_reacquire:
-            self._queue_reacquire(to_reacquire)
+        if self.repair and self.reacquire and to_reacquire and not reacquire_phase_complete:
+            self.data["_verify_reacquire_targets"] = sorted(set(to_reacquire))
+            outcome = self.manage_subtasks(
+                stage=1,
+                queue_fn=lambda: self._queue_reacquire(self.data["_verify_reacquire_targets"]),
+                done_fn=None,
+                wait_seconds=0,
+                retry_key=None,
+                max_retries=0,
+                incomplete_message_fn=lambda: ("Verify reacquire download subtask did not complete.", ""),
+                retry_incomplete=False,
+            )
+            if outcome == "ERROR":
+                return "ERROR"
+            if outcome is False:
+                return False
 
         clean_targets_to_queue = []
         if not worker_errors and self.repair and ((self.clean_isoforms and not self.skip_clean_isoforms) or forced_clean_targets):
@@ -1178,7 +1263,7 @@ class VerifyAssemblyTask(Task):
                 return True
 
             outcome = self.manage_subtasks(
-                stage=1,
+                stage=2,
                 queue_fn=queue_clean_subtask,
                 done_fn=None,
                 wait_seconds=0,
