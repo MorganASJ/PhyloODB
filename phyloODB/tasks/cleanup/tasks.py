@@ -108,12 +108,13 @@ class PrepareProteomeTask(Task):
         explicit = self.data.get("cdhit_identity")
         if explicit is not None:
             return float(explicit)
-        env_value = self.db_manager.get_environment_variable("DEFAULT_PROTEOME_CDHIT_IDENTITY")
-        if env_value is not None and str(env_value).strip() != "":
-            try:
-                return float(env_value)
-            except (TypeError, ValueError):
-                pass
+        for key in ("DEFAULT_PROTEOME_CDHIT_IDENTITY", "DEFAULT_CDHIT_IDENTITY"):
+            env_value = self.db_manager.get_environment_variable(key)
+            if env_value is not None and str(env_value).strip() != "":
+                try:
+                    return float(env_value)
+                except (TypeError, ValueError):
+                    pass
         return 0.96
 
     def _effective_parallelism(self, total_jobs: int) -> tuple[int, int]:

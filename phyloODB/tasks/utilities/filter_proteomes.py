@@ -221,12 +221,10 @@ def filter_isoforms_using_cdhit(faa_file, output_file, identity=0.95, prefix=Non
     SILENT = silent
 
     if identity <= 0 or identity > 1.0:
-        print("Error: Identity must be between 0 and 1.0.")
-        return
+        raise ValueError("CD-HIT identity must be between 0 and 1.0.")
 
     if not os.path.exists(faa_file):
-        print(f"Error: The file {faa_file} does not exist.")
-        return
+        raise FileNotFoundError(f"CD-HIT input file does not exist: {faa_file}")
 
     # Run CD-HIT to cluster sequences at the specified identity
     command = [
@@ -246,14 +244,15 @@ def filter_isoforms_using_cdhit(faa_file, output_file, identity=0.95, prefix=Non
             text=True,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        if not SILENT:
-            print(f"Error running CD-HIT: {exc}")
-        return
+        raise RuntimeError(f"Unable to run CD-HIT executable 'cd-hit': {exc}") from exc
 
     if result.returncode != 0:
-        if not SILENT:
-            print(f"CD-HIT failed ({result.returncode}): {result.stderr.strip()}")
-        return
+        detail = (result.stderr or result.stdout or "").strip()
+        suffix = f": {detail}" if detail else ""
+        raise RuntimeError(f"CD-HIT failed with exit code {result.returncode}{suffix}")
+
+    if not os.path.isfile(output_file):
+        raise RuntimeError(f"CD-HIT completed without creating its output file: {output_file}")
 
     # Optionally rename headers in the output file
     if prefix:
