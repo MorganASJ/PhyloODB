@@ -863,6 +863,7 @@ class ExportLibraryTask(Task):
         *,
         accession: str,
         family_id: str,
+        source_header: str,
         sequence: str,
         taxon_info: dict[str, str],
         acc_to_tax: dict[str, int],
@@ -875,6 +876,7 @@ class ExportLibraryTask(Task):
                 return ""
             return re.sub(r"\s+", "_", str(val).strip())
 
+        sequence_id = str(source_header or "").lstrip(">").split(maxsplit=1)[0]
         values = {
             "ACCESSION": accession,
             "BITSCORE": self._fmt_header_bitscore(bitscore_cache.get((accession, family_id))),
@@ -888,6 +890,7 @@ class ExportLibraryTask(Task):
             "SPECIES": _clean(taxon_info.get("species") or ""),
             "RANK": _clean(taxon_info.get("rank") or ""),
             "BUSCO": _clean(family_id),
+            "SEQUENCE": _clean(sequence_id),
             "LENGTH": str(len(sequence)),
             "GENE": _clean(gene_cache.get(family_id) or ""),
             "TAXID": str(acc_to_tax.get(accession, "")),
@@ -897,7 +900,8 @@ class ExportLibraryTask(Task):
         return f">{rendered}"
 
     def _header_needs_copy_suffix(self, *, header_template: str) -> bool:
-        return "GENE" not in str(header_template or "")
+        template = str(header_template or "")
+        return "GENE" not in template and "SEQUENCE" not in template
 
     def _effective_header_rank(self, header_template: str) -> Optional[str]:
         raw_rank = str(self.header_rank).strip().lower() if self.header_rank else ""
@@ -2276,6 +2280,7 @@ class ExportLibraryTask(Task):
                 "SPECIES",
                 "RANK",
                 "BUSCO",
+                "SEQUENCE",
                 "LENGTH",
                 "GENE",
                 "TAXID",
@@ -2292,7 +2297,7 @@ class ExportLibraryTask(Task):
                             break
                     if not matched:
                         return self.handle_exception(
-                            "Invalid header template token. Use ACCESSION/TAXON/KINGDOM/PHYLUM/CLASS/ORDER/FAMILY/GENUS/SPECIES/RANK/BUSCO/LENGTH/GENE/TAXID/BITSCORE.",
+                            "Invalid header template token. Use ACCESSION/TAXON/KINGDOM/PHYLUM/CLASS/ORDER/FAMILY/GENUS/SPECIES/RANK/BUSCO/SEQUENCE/LENGTH/GENE/TAXID/BITSCORE.",
                             {"header": header_template},
                         )
                     idx += len(matched)
@@ -2427,6 +2432,7 @@ class ExportLibraryTask(Task):
                             out_header = self._render_export_header(
                                 accession=acc,
                                 family_id=fam,
+                                source_header=header,
                                 sequence=seq,
                                 taxon_info=taxon_info,
                                 acc_to_tax=acc_to_tax,

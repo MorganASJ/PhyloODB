@@ -407,7 +407,7 @@ class ExportLibraryPayload(TaskPayload):
     retain_headers: bool = Field(default=False, description="Preserve original BUSCO headers in exported FASTAs.")
     header: Optional[str] = Field(
         default=None,
-        description="Custom header template for exported FASTAs. Supports ACCESSION/TAXON/GENUS/SPECIES/RANK/FAMILY/LENGTH/GENE/TAXID/BITSCORE; TAXON falls back to <taxon>_sp for non-species assemblies.",
+        description="Custom header template for exported FASTAs. Supports ACCESSION/TAXON/KINGDOM/PHYLUM/CLASS/ORDER/FAMILY/GENUS/SPECIES/RANK/BUSCO/SEQUENCE/LENGTH/GENE/TAXID/BITSCORE; TAXON falls back to <taxon>_sp for non-species assemblies.",
     )
     header_rank: Optional[str] = Field(default=None, description="Rank token used when HEADER includes RANK.")
     family_ids: List[str] = Field(
@@ -629,7 +629,13 @@ class BatchBuscoTaskPayload(TaskPayload):
         default=False,
         description="Retain miniprot ref.mpi file in BUSCO output.",
     )
-    max_concurrent: PositiveInt = Field(default=1)
+    max_concurrent: Optional[PositiveInt] = Field(
+        default=None,
+        description=(
+            "Allocate the batch thread budget across this many concurrent BUSCO children. "
+            "When omitted, each child uses the normal BUSCO thread default and daemon scheduling."
+        ),
+    )
     busco_lib_wait_seconds: int = Field(default=0, ge=0)
     busco_lib_retries: int = Field(default=0, ge=0)
 

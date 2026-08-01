@@ -232,7 +232,8 @@ class BatchBuscoTask(Task):
         self.miniprot_parameters = self.data.get("miniprot_parameters")
         self.keep_miniprot_ref_file_raw = self.data.get("keep_miniprot_ref_file", None)
         self.keep_miniprot_ref_file = bool(self.keep_miniprot_ref_file_raw) if self.keep_miniprot_ref_file_raw is not None else False
-        self.max_concurrent = max(1, int(self.data.get("max_concurrent", 1) or 1))
+        max_concurrent = self.data.get("max_concurrent")
+        self.max_concurrent = max(1, int(max_concurrent)) if max_concurrent not in (None, "") else None
         self.busco_lib_wait_seconds = self.data.get("busco_lib_wait_seconds", 0)
         self.busco_lib_retries = self.data.get("busco_lib_retries", 0)
         self.stage = checkpoint if checkpoint is not None else 0
@@ -332,33 +333,40 @@ class BatchBuscoTask(Task):
         missing = self._busco_missing()
         self.log(f"BUSCO missing: {missing}", "DEBUG")
         queued = False
-        child_threads = max(1, (int(self.REQUIRED_THREADS or 1) + self.max_concurrent - 1) // self.max_concurrent)
+        child_threads = None
+        if self.max_concurrent is not None:
+            child_threads = max(
+                1,
+                (int(self.REQUIRED_THREADS or 1) + self.max_concurrent - 1) // self.max_concurrent,
+            )
         for acc in missing:
+            child_payload = {
+                "lineage": self.lineage,
+                "library": self.library,
+                "format": self.format,
+                "accession": acc,
+                "output_path": self.output_path,
+                "force": self.force,
+                "pipeline": self.pipeline,
+                "proteome_profile": self.proteome_profile,
+                "prefer_proteome_profile": self.prefer_proteome_profile,
+                "augustus_evalue": self.augustus_evalue,
+                "augustus_limit": self.augustus_limit,
+                "augustus_long": self.augustus_long,
+                "augustus_species": self.augustus_species,
+                "augustus_parameters": self.augustus_parameters,
+                "metaeuk_parameters": self.metaeuk_parameters,
+                "metaeuk_rerun_parameters": self.metaeuk_rerun_parameters,
+                "miniprot_parameters": self.miniprot_parameters,
+                "keep_miniprot_ref_file": self.keep_miniprot_ref_file,
+            }
+            if child_threads is not None:
+                child_payload["required_threads"] = child_threads
             self.queue_subtask(
                 job_type=4,
                 status="P",
                 priority=1,
-                data={
-                    "lineage": self.lineage,
-                    "library": self.library,
-                    "format": self.format,
-                    "accession": acc,
-                    "output_path": self.output_path,
-                    "force": self.force,
-                    "pipeline": self.pipeline,
-                    "proteome_profile": self.proteome_profile,
-                    "prefer_proteome_profile": self.prefer_proteome_profile,
-                    "augustus_evalue": self.augustus_evalue,
-                    "augustus_limit": self.augustus_limit,
-                    "augustus_long": self.augustus_long,
-                    "augustus_species": self.augustus_species,
-                    "augustus_parameters": self.augustus_parameters,
-                    "metaeuk_parameters": self.metaeuk_parameters,
-                    "metaeuk_rerun_parameters": self.metaeuk_rerun_parameters,
-                    "miniprot_parameters": self.miniprot_parameters,
-                    "keep_miniprot_ref_file": self.keep_miniprot_ref_file,
-                    "required_threads": child_threads,
-                },
+                data=child_payload,
             )
             queued = True
         return queued

@@ -2006,6 +2006,7 @@ The first says that every retained family must include at least one primate and 
 - `SPECIES`
 - `RANK`
 - `BUSCO`
+- `SEQUENCE`
 - `LENGTH`
 - `GENE`
 - `TAXID`
@@ -2033,9 +2034,14 @@ phyloODB my_project.db queue export \
   --library-name metazoa_core \
   --accessions @MY_PANEL \
   --header 'ACCESSION_SPECIES_GENE'
+
+phyloODB my_project.db queue build-busco-trees \
+  --library-name metazoa_odb12 \
+  --accessions @METAZOA_CORE \
+  --header 'ACCESSION_SEQUENCE'
 ```
 
-Here `RANK` is the generic rank token driven by `--header-rank`, while fixed rank tokens such as `PHYLUM` and `ORDER` come directly from the accession lineage. `FAMILY` means the taxonomic family name, and `BUSCO` means the BUSCO family id.
+Here `RANK` is the generic rank token driven by `--header-rank`, while fixed rank tokens such as `PHYLUM` and `ORDER` come directly from the accession lineage. `FAMILY` means the taxonomic family name, `BUSCO` means the BUSCO family id, and `SEQUENCE` means the original BUSCO FASTA sequence id. `ACCESSION_SEQUENCE` preserves both fields needed to annotate separately built BUSCO trees.
 
 `--header-rank` only matters if `RANK` is used in the template. If `--retain-headers` is present, PhyloODB keeps the original BUSCO headers and skips template rendering.
 

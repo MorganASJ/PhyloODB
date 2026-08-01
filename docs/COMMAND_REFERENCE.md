@@ -1012,10 +1012,10 @@ phyloODB project.db queue export --library-name metazoa_core --accessions @MY_PA
 `--header` syntax:
 
 - active only when `--retain-headers` is not used
-- valid tokens: `ACCESSION`, `TAXON`, `KINGDOM`, `PHYLUM`, `CLASS`, `ORDER`, `FAMILY`, `GENUS`, `SPECIES`, `RANK`, `BUSCO`, `LENGTH`, `GENE`, `TAXID`, `BITSCORE`
+- valid tokens: `ACCESSION`, `TAXON`, `KINGDOM`, `PHYLUM`, `CLASS`, `ORDER`, `FAMILY`, `GENUS`, `SPECIES`, `RANK`, `BUSCO`, `SEQUENCE`, `LENGTH`, `GENE`, `TAXID`, `BITSCORE`
 - allowed separators: `.`, `|`, `_`, `-`, `:`, `[`, `]`
 - use `--header-rank` when the template includes `RANK`
-- `FAMILY` means taxonomic family; `BUSCO` means the BUSCO family id
+- `FAMILY` means taxonomic family; `BUSCO` means the BUSCO family id; `SEQUENCE` means the original BUSCO FASTA sequence id
 
 Export-side auxiliary outputs can include:
 

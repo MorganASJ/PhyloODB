@@ -682,7 +682,9 @@ class _OrthogroupTreeAnnotationMixin:
             return metadata
         accession = self._extract_accession_token(leaf_name)
         sequence = leaf_name
-        if accession and leaf_name.startswith(accession.replace(".", "_") + "_"):
+        if accession and leaf_name.startswith(accession + "_"):
+            sequence = leaf_name[len(accession) + 1:]
+        elif accession and leaf_name.startswith(accession.replace(".", "_") + "_"):
             sequence = leaf_name[len(accession.replace(".", "_")) + 1:]
         else:
             match = re.match(r"^(GC[AF]_\d+_\d+)(?:_.+)?$", leaf_name, flags=re.IGNORECASE)
