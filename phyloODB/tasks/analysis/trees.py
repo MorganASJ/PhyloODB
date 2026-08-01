@@ -611,7 +611,10 @@ class _OrthogroupTreeAnnotationMixin:
         text = str(token or "").strip()
         if not text:
             return ""
-        match = re.match(r"^(GC[AF])_(\d+)[._](\d+)\b", text, flags=re.IGNORECASE)
+        # ``\b`` does not match before ``_`` because underscore is a regex word
+        # character. Exported tree tips use ACCESSION_SEQUENCE, so accept any
+        # non-alphanumeric delimiter after the accession version.
+        match = re.match(r"^(GC[AF])_(\d+)[._](\d+)(?=$|[^A-Za-z0-9])", text, flags=re.IGNORECASE)
         if match:
             prefix, digits, version = match.groups()
             return canonicalize_accession(f"{prefix}_{digits}.{version}")
