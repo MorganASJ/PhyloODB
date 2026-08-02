@@ -798,6 +798,18 @@ class BuscoRepository(BaseRepository):
             target_library_id=int(library_id),
             run_id=paralog_run_id,
         )
+        child_has_paralog_run = bool(
+            effective_paralog_run_id
+            and self.core.fetchone(
+                "SELECT 1 FROM Paralog_Filtering WHERE target_library_id = ? AND run_id = ? LIMIT 1",
+                (int(library_id), str(effective_paralog_run_id)),
+            )
+        )
+        if parent_id and not child_has_paralog_run:
+            effective_paralog_run_id = self.manager.filtering.resolve_paralog_run_id(
+                target_library_id=int(parent_id),
+                run_id=paralog_run_id,
+            )
         effective_decont_context = self._resolve_effective_decont_context(
             target_library_id=int(library_id),
             parent_library_id=int(parent_id) if parent_id else None,
@@ -982,85 +994,97 @@ class BuscoRepository(BaseRepository):
                 return None
             return round((100.0 * int(count)) / float(size), 2)
 
-        def _latest_paralog_run_for_ref(accession: str, run_id: int) -> Optional[str]:
+        def _latest_paralog_context_for_ref(accession: str, run_id: int) -> tuple[Optional[str], Optional[int]]:
             has_busco_link = self.manager._column_exists("Paralog_Filtering", "busco_run_id")
 
-            def _has_legacy_unlinked_rows() -> bool:
-                if not has_busco_link:
-                    return True
-                params: list[Any] = [int(library_id), str(accession), int(busco_library_id)]
-                sql = """
-                    SELECT 1
-                    FROM Paralog_Filtering pf
-                    LEFT JOIN BUSCO_Runs br ON br.run_id = pf.busco_run_id
-                    WHERE pf.target_library_id = ?
-                      AND pf.accession = ?
-                      AND pf.library_id = ?
-                      AND (pf.busco_run_id IS NULL OR br.run_id IS NULL)
-                """
-                if paralog_run_id:
-                    sql += " AND pf.run_id = ?"
-                    params.append(str(paralog_run_id))
-                sql += " LIMIT 1"
-                row = self.core.fetchone(sql, tuple(params))
-                return bool(row)
-
-            params: list[Any] = [int(library_id), str(accession), int(busco_library_id)]
-            sql = """
-                SELECT pf.run_id
-                FROM Paralog_Filtering pf
-                WHERE pf.target_library_id = ?
-                  AND pf.accession = ?
-                  AND pf.library_id = ?
-            """
-            if has_busco_link:
-                sql += " AND pf.busco_run_id = ?"
-                params.append(int(run_id))
-            else:
-                sql += """
-                  AND EXISTS (
+            def _latest_for_target(target_library_id: int) -> Optional[str]:
+                def _has_legacy_unlinked_rows() -> bool:
+                    if not has_busco_link:
+                        return True
+                    params: list[Any] = [int(target_library_id), str(accession), int(busco_library_id)]
+                    sql = """
                         SELECT 1
-                        FROM BUSCO_Run_Family_Data d
-                        JOIN BUSCO_descriptions bd
-                          ON bd.family_id = d.family_id AND bd.library_id = ?
-                        WHERE d.run_id = ?
-                          AND d.accession = pf.accession
-                          AND d.family_id = pf.family_id
-                    )
-                """
-                params.extend([int(library_id), int(run_id)])
-            if paralog_run_id:
-                sql += " AND pf.run_id = ?"
-                params.append(str(paralog_run_id))
-            sql += " ORDER BY COALESCE(pf.date, '') DESC, pf.rowid DESC LIMIT 1"
-            row = self.core.fetchone(sql, tuple(params))
-            if (not row or not row[0]) and has_busco_link and _has_legacy_unlinked_rows():
-                params = [int(library_id), str(accession), int(busco_library_id)]
+                        FROM Paralog_Filtering pf
+                        LEFT JOIN BUSCO_Runs br ON br.run_id = pf.busco_run_id
+                        WHERE pf.target_library_id = ?
+                          AND pf.accession = ?
+                          AND pf.library_id = ?
+                          AND (pf.busco_run_id IS NULL OR br.run_id IS NULL)
+                    """
+                    if paralog_run_id:
+                        sql += " AND pf.run_id = ?"
+                        params.append(str(paralog_run_id))
+                    sql += " LIMIT 1"
+                    row = self.core.fetchone(sql, tuple(params))
+                    return bool(row)
+
+                params: list[Any] = [int(target_library_id), str(accession), int(busco_library_id)]
                 sql = """
                     SELECT pf.run_id
                     FROM Paralog_Filtering pf
-                    JOIN BUSCO_Run_Family_Data d
-                      ON d.family_id = pf.family_id
-                     AND d.accession = pf.accession
-                     AND d.run_id = ?
-                     AND d.library_id = ?
-                    JOIN BUSCO_descriptions bd
-                      ON bd.family_id = pf.family_id AND bd.library_id = ?
                     WHERE pf.target_library_id = ?
                       AND pf.accession = ?
                       AND pf.library_id = ?
                 """
-                params = [int(run_id), int(busco_library_id), int(library_id), int(library_id), str(accession), int(busco_library_id)]
+                if has_busco_link:
+                    sql += " AND pf.busco_run_id = ?"
+                    params.append(int(run_id))
+                else:
+                    sql += """
+                      AND EXISTS (
+                            SELECT 1
+                            FROM BUSCO_Run_Family_Data d
+                            JOIN BUSCO_descriptions bd
+                              ON bd.family_id = d.family_id AND bd.library_id = ?
+                            WHERE d.run_id = ?
+                              AND d.accession = pf.accession
+                              AND d.family_id = pf.family_id
+                        )
+                    """
+                    params.extend([int(library_id), int(run_id)])
                 if paralog_run_id:
                     sql += " AND pf.run_id = ?"
                     params.append(str(paralog_run_id))
                 sql += " ORDER BY COALESCE(pf.date, '') DESC, pf.rowid DESC LIMIT 1"
                 row = self.core.fetchone(sql, tuple(params))
-            return str(row[0]) if row and row[0] else None
+                if (not row or not row[0]) and has_busco_link and _has_legacy_unlinked_rows():
+                    sql = """
+                        SELECT pf.run_id
+                        FROM Paralog_Filtering pf
+                        JOIN BUSCO_Run_Family_Data d
+                          ON d.family_id = pf.family_id
+                         AND d.accession = pf.accession
+                         AND d.run_id = ?
+                         AND d.library_id = ?
+                        JOIN BUSCO_descriptions bd
+                          ON bd.family_id = pf.family_id AND bd.library_id = ?
+                        WHERE pf.target_library_id = ?
+                          AND pf.accession = ?
+                          AND pf.library_id = ?
+                    """
+                    params = [
+                        int(run_id), int(busco_library_id), int(library_id),
+                        int(target_library_id), str(accession), int(busco_library_id),
+                    ]
+                    if paralog_run_id:
+                        sql += " AND pf.run_id = ?"
+                        params.append(str(paralog_run_id))
+                    sql += " ORDER BY COALESCE(pf.date, '') DESC, pf.rowid DESC LIMIT 1"
+                    row = self.core.fetchone(sql, tuple(params))
+                return str(row[0]) if row and row[0] else None
+
+            target_candidates = [int(library_id)]
+            if parent_id:
+                target_candidates.append(int(parent_id))
+            for target_library_id in target_candidates:
+                selected_run = _latest_for_target(target_library_id)
+                if selected_run:
+                    return selected_run, target_library_id
+            return None, None
 
         def _paralog_counts(accession: str, run_id: int) -> tuple[Optional[int], bool, Optional[str]]:
-            selected_run = _latest_paralog_run_for_ref(accession, run_id)
-            if selected_run is None:
+            selected_run, selected_target_library_id = _latest_paralog_context_for_ref(accession, run_id)
+            if selected_run is None or selected_target_library_id is None:
                 return None, False, None
             has_busco_link = self.manager._column_exists("Paralog_Filtering", "busco_run_id")
             used_legacy_fallback = False
@@ -1079,7 +1103,7 @@ class BuscoRepository(BaseRepository):
                       AND pf.run_id = ?
                       AND pf.busco_run_id = ?
                     """,
-                    (int(library_id), int(library_id), int(busco_library_id), str(accession), str(selected_run), int(run_id)),
+                    (int(library_id), int(selected_target_library_id), int(busco_library_id), str(accession), str(selected_run), int(run_id)),
                 )
                 if (not row or int(row[1] or 0) <= 0):
                     legacy_row = self.core.fetchone(
@@ -1094,7 +1118,7 @@ class BuscoRepository(BaseRepository):
                           AND (pf.busco_run_id IS NULL OR br.run_id IS NULL)
                         LIMIT 1
                         """,
-                        (int(library_id), str(accession), int(busco_library_id), str(selected_run)),
+                        (int(selected_target_library_id), str(accession), int(busco_library_id), str(selected_run)),
                     )
                     if not legacy_row:
                         total_cnt = int(row[1] or 0) if row else 0
@@ -1119,7 +1143,7 @@ class BuscoRepository(BaseRepository):
                           AND pf.accession = ?
                           AND pf.run_id = ?
                         """,
-                        (int(run_id), int(busco_library_id), int(library_id), int(library_id), int(busco_library_id), str(accession), str(selected_run)),
+                        (int(run_id), int(busco_library_id), int(library_id), int(selected_target_library_id), int(busco_library_id), str(accession), str(selected_run)),
                     )
             else:
                 row = self.core.fetchone(
@@ -1140,7 +1164,7 @@ class BuscoRepository(BaseRepository):
                       AND pf.accession = ?
                       AND pf.run_id = ?
                     """,
-                    (int(run_id), int(busco_library_id), int(library_id), int(library_id), int(busco_library_id), str(accession), str(selected_run)),
+                    (int(run_id), int(busco_library_id), int(library_id), int(selected_target_library_id), int(busco_library_id), str(accession), str(selected_run)),
                 )
             total_cnt = int(row[1] or 0) if row else 0
             if total_cnt <= 0:
@@ -1622,13 +1646,33 @@ class BuscoRepository(BaseRepository):
         if allow_ambiguous:
             supported_decisions.append("unknown")
 
+        paralog_target_library_id = int(library_id)
+        effective_paralog_run_id = self.manager.filtering.resolve_paralog_run_id(
+            target_library_id=paralog_target_library_id,
+            run_id=paralog_run_id,
+        )
+        child_has_paralog_run = bool(
+            effective_paralog_run_id
+            and self.core.fetchone(
+                "SELECT 1 FROM Paralog_Filtering WHERE target_library_id = ? AND run_id = ? LIMIT 1",
+                (paralog_target_library_id, str(effective_paralog_run_id)),
+            )
+        )
+        if parent_id and not child_has_paralog_run:
+            paralog_target_library_id = int(parent_id)
+            effective_paralog_run_id = self.manager.filtering.resolve_paralog_run_id(
+                target_library_id=paralog_target_library_id,
+                run_id=paralog_run_id,
+            )
+
         hidden_counts: dict[str, tuple[int, int]] = {}
         has_paralog: set[str] = set()
         hidden_counts = self.manager.filtering.paralog_hidden_counts(
-            target_library_id=int(library_id),
+            target_library_id=paralog_target_library_id,
             busco_library_id=busco_library_id,
+            family_library_id=int(library_id),
             accessions=accessions_list,
-            run_id=paralog_run_id,
+            run_id=effective_paralog_run_id,
         )
         has_paralog = {acc for acc, (_hidden, total) in hidden_counts.items() if total > 0}
 

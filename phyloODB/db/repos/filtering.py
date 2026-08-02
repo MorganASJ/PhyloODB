@@ -229,7 +229,15 @@ class FilteringRepository(BaseRepository):
                 latest[key] = (str(rid), decision, date)
         return latest
 
-    def paralog_hidden_counts(self, *, target_library_id: int, busco_library_id: int, accessions=None, run_id: Optional[str] = None):
+    def paralog_hidden_counts(
+        self,
+        *,
+        target_library_id: int,
+        busco_library_id: int,
+        family_library_id: Optional[int] = None,
+        accessions=None,
+        run_id: Optional[str] = None,
+    ):
         supports_target = self.supports_target_library()
         paralog_run_id = self.resolve_paralog_run_id(target_library_id=int(target_library_id), run_id=run_id)
         sql = """
@@ -241,7 +249,7 @@ class FilteringRepository(BaseRepository):
               ON bd.family_id = pf.family_id AND bd.library_id = ?
             WHERE pf.library_id = ?
         """
-        params = [busco_library_id, busco_library_id]
+        params = [int(family_library_id or busco_library_id), busco_library_id]
         if supports_target:
             sql += " AND pf.target_library_id = ?"
             params.append(target_library_id)

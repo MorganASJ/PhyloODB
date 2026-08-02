@@ -378,6 +378,7 @@ class BuildBuscoTreesTask(ExportLibraryTask):
         self.trees_dir: Optional[str] = self.data.get("trees_dir")
         self.manifest_path: Optional[str] = self.data.get("manifest_path")
         self.busco_families_dir: Optional[str] = self.data.get("busco_families_dir")
+        self.selected_busco_runs: dict[str, dict[str, Any]] = dict(self.data.get("selected_busco_runs") or {})
         self.mafft_threads: int = int(self.data.get("mafft_threads") or DEFAULT_MAFFT_TASK_THREADS)
         self.iqtree_threads: int = int(self.data.get("iqtree_threads") or DEFAULT_IQTREE_TASK_THREADS)
 
@@ -481,9 +482,17 @@ class BuildBuscoTreesTask(ExportLibraryTask):
         return True
 
     def _write_manifest(self) -> None:
+        source_run_ids = sorted(
+            {
+                int(meta["run_id"])
+                for meta in (getattr(self, "selected_busco_runs", {}) or {}).values()
+                if meta.get("run_id") is not None
+            }
+        )
+        source_run_ids_text = ",".join(str(run_id) for run_id in source_run_ids)
         with open(self.manifest_path, "w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle, delimiter="\t")
-            writer.writerow(["family_id", "raw_fasta", "alignment_path", "tree_dir", "tree_path"])
+            writer.writerow(["family_id", "raw_fasta", "alignment_path", "tree_dir", "tree_path", "source_run_ids"])
             for row in self._family_rows():
                 best_tree = _read_best_tree_path(row["tree_dir"], row["prefix"])
                 if not best_tree:
@@ -494,6 +503,7 @@ class BuildBuscoTreesTask(ExportLibraryTask):
                     row["alignment_path"],
                     row["tree_dir"],
                     best_tree,
+                    source_run_ids_text,
                 ])
 
     def run(self):
@@ -517,6 +527,7 @@ class BuildBuscoTreesTask(ExportLibraryTask):
                     "trees_dir": self.trees_dir,
                     "manifest_path": self.manifest_path,
                     "busco_families_dir": self.busco_families_dir,
+                    "selected_busco_runs": self.selected_busco_runs,
                 },
             )
 
@@ -890,7 +901,10 @@ class AnnotateOrthogroupTreeTask(Task, _OrthogroupTreeAnnotationMixin):
             orthogroup = base[:-9] if base.endswith("_tree.txt") else os.path.splitext(base)[0]
             row = manifest.get(orthogroup, {})
             family_id = str(row.get("family_id") or row.get("busco_family_id") or "").strip()
-            source_run_ids = [int(token) for token in str(row.get("source_run_ids") or "").split(",") if token.strip().isdigit()]
+            raw_source_run_ids = row.get("source_run_ids") or self.data.get("source_run_ids") or []
+            if isinstance(raw_source_run_ids, str):
+                raw_source_run_ids = raw_source_run_ids.split(",")
+            source_run_ids = [int(token) for token in raw_source_run_ids if str(token).strip().isdigit()]
             in_file = row.get("paralog_in_file") or row.get("inparalog_file") or ""
             out_file = row.get("paralog_out_file") or row.get("outparalog_file") or ""
             in_leaves = self._parse_paralog_leaf_names(in_file)
