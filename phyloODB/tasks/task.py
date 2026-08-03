@@ -981,6 +981,8 @@ class Task(ABC):
                     if info:
                         errs.append((sid, info[0], info[1]))
             snippets = []
+            stack_sections = []
+            seen_messages = set()
             for entry in errs:
                 if len(entry) == 3:
                     sid, message, _stack = entry
@@ -989,7 +991,16 @@ class Task(ABC):
                 text = str(message or "").strip()
                 if not text:
                     continue
+                # Retries frequently produce the same failure for the same input.
+                # Keep the parent summary useful without repeating it once per attempt.
+                if text in seen_messages:
+                    continue
+                seen_messages.add(text)
                 snippets.append(f"{sid}: {text}" if sid is not None else text)
+                stack_text = str(_stack or "").strip()
+                if stack_text:
+                    label = f"Child task {sid}" if sid is not None else "Child task"
+                    stack_sections.append(f"{label}:\n{stack_text}")
             if snippets:
                 preview = "; ".join(snippets[:3])
                 if len(snippets) > 3:
@@ -997,7 +1008,7 @@ class Task(ABC):
                 summary = f"{default_summary}. Child errors: {preview}"
             else:
                 summary = default_summary
-            stacks = ""
+            stacks = "\n\n".join(stack_sections)
         except (IndexError, TypeError, ValueError) as exc:
             self.log(f"Could not format child task errors: {exc}", level="WARNING", category="TASK")
             summary = default_summary
@@ -1046,6 +1057,25 @@ class Task(ABC):
                 if d.get("__stage") == stage and d.get("__gen") == gen:
                     filtered.append(t)
             return filtered
+        def _failed_phase_children():
+            """Return the latest failure for each logical child input in this phase."""
+            tasks = self.db_manager.tasks.get_subtasks(self.task_id) or []
+            failed_by_input = {}
+            for task in tasks:
+                try:
+                    data = json.loads(task[6]) if task[6] else {}
+                except (TypeError, json.JSONDecodeError):
+                    data = {}
+                if data.get("__stage") == stage and task[2] in ("E", "B"):
+                    input_token = data.get("input_fasta") or data.get("input_alignment")
+                    # Retried MAFFT/IQ-TREE children represent the same logical
+                    # work item. Prefer its newest (usually most informative)
+                    # failure while retaining unrelated generic child failures.
+                    key = (task[1], str(input_token)) if input_token else (task[1], task[0])
+                    previous = failed_by_input.get(key)
+                    if previous is None or int(task[0]) > int(previous[0]):
+                        failed_by_input[key] = task
+            return sorted(failed_by_input.values(), key=lambda task: int(task[0]))
         def _state(subtasks):
             if not subtasks:
                 return {"has_active": False, "has_error": False, "all_complete": False}
@@ -1105,18 +1135,16 @@ class Task(ABC):
                     # Fallback aggregate
                     self.aggregate_subtask_errors("Phase incomplete after max retries", subtask_ids=[t[0] for t in (phase_tasks or [])])
             else:
-                # Prefer last failed subtask's error for summary, include all stacks
-                ids = [t[0] for t in (phase_tasks or []) if t[2] == "E"]
+                # Report distinct child diagnostics from every retry generation,
+                # rather than reducing the phase to an opaque "subtask failed".
+                failed_tasks = _failed_phase_children()
+                ids = [t[0] for t in failed_tasks]
                 if ids:
-                    # Last failed = highest task_id among failures
-                    last_id = max(ids)
-                    last_err = self.db_manager.tasks.get_error_info(last_id) or (None, None)
-                    all_summary, all_stacks = self.aggregate_subtask_errors(
-                        f"All subtasks failed after {self.data.get(retry_key, 0)} retries.",
+                    attempts = int(self.data.get(retry_key, 0)) + 1
+                    self.aggregate_subtask_errors(
+                        f"Subtask phase failed after {attempts} attempt(s)",
                         subtask_ids=ids,
                     )
-                    summary = f"All subtasks failed after {self.data.get(retry_key, 0)} retries. Last error: {last_err[0] or ''}"
-                    self.db_manager.tasks.set_error(self.task_id, summary, all_stacks)
                 else:
                     self.aggregate_subtask_errors("Subtask failure after retries", subtask_ids=[t[0] for t in (phase_tasks or [])])
             _clear_phase_meta()

@@ -21,6 +21,49 @@ from ...accession_utils import canonicalize_accession
 DEFAULT_MAFFT_TASK_THREADS = 2
 DEFAULT_IQTREE_TASK_THREADS = 4
 
+_DIAGNOSTIC_TAIL_CHARS = 8000
+
+
+def _diagnostic_tail(value: object, *, limit: int = _DIAGNOSTIC_TAIL_CHARS) -> str:
+    """Return a bounded, readable tail of external-program output."""
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"[... truncated {len(text) - limit} characters ...]\n{text[-limit:]}"
+
+
+def _read_diagnostic_tail(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            return _diagnostic_tail(handle.read())
+    except OSError:
+        return ""
+
+
+def _external_command_error(
+    tool: str,
+    command: list[str],
+    result: subprocess.CompletedProcess,
+    *,
+    log_path: Optional[str] = None,
+) -> RuntimeError:
+    details: list[str] = [
+        f"{tool} exited with status {result.returncode}.",
+        f"Command: {shlex.join(command)}",
+    ]
+    stderr = _diagnostic_tail(result.stderr)
+    stdout = _diagnostic_tail(result.stdout)
+    log_tail = _read_diagnostic_tail(log_path) if log_path else ""
+    if stderr:
+        details.append(f"stderr:\n{stderr}")
+    elif stdout:
+        details.append(f"stdout:\n{stdout}")
+    if log_tail and log_tail not in {stderr, stdout}:
+        details.append(f"{tool} log ({log_path}):\n{log_tail}")
+    if not stderr and not stdout and not log_tail:
+        details.append("The program produced no diagnostic output.")
+    return RuntimeError("\n".join(details))
+
 
 def _resolve_executable(raw_path: object, fallback_names: Iterable[str]) -> Optional[str]:
     candidate = str(raw_path or "").strip()
@@ -178,7 +221,7 @@ def run_mafft_alignment(
     task.log(f"Running MAFFT: {' '.join(command)}", "DEBUG")
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"MAFFT failed: {result.stderr.strip()}")
+        raise _external_command_error("MAFFT", command, result)
     temporary_path = ""
     try:
         with tempfile.NamedTemporaryFile(
@@ -242,7 +285,12 @@ def run_iqtree_analysis(
     task.log(f"Running IQ-TREE: {' '.join(command)}", "DEBUG")
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"IQ-TREE failed: {result.stderr.strip()}")
+        raise _external_command_error(
+            "IQ-TREE",
+            command,
+            result,
+            log_path=os.path.join(tree_dir, f"{token}.log"),
+        )
     best_tree = _read_best_tree_path(tree_dir, token)
     if not best_tree:
         raise FileNotFoundError(f"IQ-TREE completed but no tree file was found in {tree_dir}.")
