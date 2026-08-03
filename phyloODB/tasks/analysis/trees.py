@@ -497,6 +497,21 @@ class BuildBuscoTreesTask(ExportLibraryTask):
             for row in rows
         )
 
+    def _mafft_incomplete_message(self) -> str:
+        rows = self._family_rows()
+        failures = []
+        for row in rows:
+            if valid_mafft_alignment(row["alignment_path"], row["raw_fasta"]):
+                continue
+            state = "invalid" if os.path.exists(row["alignment_path"]) else "missing"
+            failures.append(f"{row['family_id']} ({state}: {row['alignment_path']})")
+        if not rows:
+            return "MAFFT phase incomplete: no BUSCO family FASTAs were available."
+        preview = "; ".join(failures[:10])
+        if len(failures) > 10:
+            preview += f"; ... and {len(failures) - 10} more"
+        return f"MAFFT phase incomplete: {len(failures)} alignment output(s) missing or invalid: {preview}"
+
     def _queue_iqtree_subtasks(self) -> bool:
         queued = False
         for row in self._family_rows():
@@ -528,6 +543,25 @@ class BuildBuscoTreesTask(ExportLibraryTask):
             if not best_tree:
                 return False
         return True
+
+    def _iqtree_incomplete_message(self) -> str:
+        rows = self._family_rows()
+        failures = []
+        for row in rows:
+            if _read_best_tree_path(row["tree_dir"], row["prefix"]):
+                continue
+            candidates = [
+                os.path.join(row["tree_dir"], f"{row['prefix']}.treefile"),
+                os.path.join(row["tree_dir"], f"{row['prefix']}.contree"),
+            ]
+            state = "invalid" if any(os.path.exists(path) for path in candidates) else "missing"
+            failures.append(f"{row['family_id']} ({state}: {row['tree_dir']})")
+        if not rows:
+            return "IQ-TREE phase incomplete: no BUSCO family alignments were available."
+        preview = "; ".join(failures[:10])
+        if len(failures) > 10:
+            preview += f"; ... and {len(failures) - 10} more"
+        return f"IQ-TREE phase incomplete: {len(failures)} tree output(s) missing or invalid: {preview}"
 
     def _write_manifest(self) -> None:
         source_run_ids = sorted(
@@ -592,6 +626,8 @@ class BuildBuscoTreesTask(ExportLibraryTask):
             done_fn=self._mafft_done,
             wait_seconds=0,
             max_retries=int(self.data.get("mafft_retries", 1)),
+            incomplete_message_fn=self._mafft_incomplete_message,
+            retry_incomplete=True,
         )
         if outcome == "ERROR":
             return "ERROR"
@@ -604,6 +640,8 @@ class BuildBuscoTreesTask(ExportLibraryTask):
             done_fn=self._iqtree_done,
             wait_seconds=0,
             max_retries=int(self.data.get("iqtree_retries", 1)),
+            incomplete_message_fn=self._iqtree_incomplete_message,
+            retry_incomplete=True,
         )
         if outcome == "ERROR":
             return "ERROR"

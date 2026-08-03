@@ -821,6 +821,23 @@ class AddLibraryTask(Task):
             for row in rows
         )
 
+    def _replacement_mafft_incomplete_message(self, exact_pairs_filtered: list[tuple[str, str]]) -> str:
+        rows = self._replacement_tree_rows(exact_pairs_filtered)
+        failures = []
+        for row in rows:
+            if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]):
+                continue
+            if valid_mafft_alignment(row["alignment_path"], row["raw_fasta"]):
+                continue
+            state = "invalid" if os.path.exists(row["alignment_path"]) else "missing"
+            failures.append(f"{row['orthogroup']} ({state}: {row['alignment_path']})")
+        if not rows:
+            return "MAFFT phase incomplete: no replacement orthogroups were available."
+        preview = "; ".join(failures[:10])
+        if len(failures) > 10:
+            preview += f"; ... and {len(failures) - 10} more"
+        return f"MAFFT phase incomplete: {len(failures)} alignment output(s) missing or invalid: {preview}"
+
     def _queue_replacement_iqtree_subtasks(self, exact_pairs_filtered: list[tuple[str, str]]) -> bool:
         if self._effective_gene_tree_source() != "iqtree":
             return False
@@ -866,6 +883,27 @@ class AddLibraryTask(Task):
             if not best_tree:
                 return False
         return True
+
+    def _replacement_iqtree_incomplete_message(self, exact_pairs_filtered: list[tuple[str, str]]) -> str:
+        rows = self._replacement_tree_rows(exact_pairs_filtered)
+        failures = []
+        for row in rows:
+            if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]):
+                continue
+            if self._find_iqtree_tree(row["tree_dir"], row["prefix"]):
+                continue
+            candidates = [
+                os.path.join(row["tree_dir"], f"{row['prefix']}.treefile"),
+                os.path.join(row["tree_dir"], f"{row['prefix']}.contree"),
+            ]
+            state = "invalid" if any(os.path.exists(path) for path in candidates) else "missing"
+            failures.append(f"{row['orthogroup']} ({state}: {row['tree_dir']})")
+        if not rows:
+            return "IQ-TREE phase incomplete: no replacement orthogroups were available."
+        preview = "; ".join(failures[:10])
+        if len(failures) > 10:
+            preview += f"; ... and {len(failures) - 10} more"
+        return f"IQ-TREE phase incomplete: {len(failures)} tree output(s) missing or invalid: {preview}"
 
     def _find_iqtree_tree(self, tree_dir: str, prefix: str) -> Optional[str]:
         candidates = [
@@ -1553,6 +1591,8 @@ class AddLibraryTask(Task):
                     done_fn=lambda: self._replacement_mafft_done(exact_pairs_filtered),
                     wait_seconds=0,
                     max_retries=int(self.data.get("mafft_retries", 1)),
+                    incomplete_message_fn=lambda: self._replacement_mafft_incomplete_message(exact_pairs_filtered),
+                    retry_incomplete=True,
                 )
                 if outcome == "ERROR":
                     return "ERROR"
@@ -1565,6 +1605,8 @@ class AddLibraryTask(Task):
                     done_fn=lambda: self._replacement_iqtree_done(exact_pairs_filtered),
                     wait_seconds=0,
                     max_retries=int(self.data.get("iqtree_retries", 1)),
+                    incomplete_message_fn=lambda: self._replacement_iqtree_incomplete_message(exact_pairs_filtered),
+                    retry_incomplete=True,
                 )
                 if outcome == "ERROR":
                     return "ERROR"

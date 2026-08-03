@@ -1092,6 +1092,16 @@ class Task(ABC):
                 return _state(phase_tasks)["all_complete"]
             return bool(done_fn())
         def _queue_retry_or_error(reason: str, *, use_incomplete_msg: bool = False, phase_tasks=None, allow_retry: bool = True):
+            incomplete_msg = None
+            if use_incomplete_msg and incomplete_message_fn:
+                try:
+                    incomplete_msg = incomplete_message_fn()
+                except Exception as exc:  # boundary: optional diagnostic callback
+                    self.log(
+                        f"Failed to build incomplete-phase diagnostic: {exc}",
+                        level="WARNING",
+                        category="SCHEDULER",
+                    )
             # Retry if allowed
             retries = int(self.data.get(retry_key, 0)) if retry_key else 0
             if allow_retry and retry_key and retries < max_retries:
@@ -1113,24 +1123,18 @@ class Task(ABC):
                         level="WARNING",
                         category="SCHEDULER",
                     )
+                    if incomplete_msg:
+                        diagnostic = incomplete_msg[0] if isinstance(incomplete_msg, tuple) else incomplete_msg
+                        self.log(str(diagnostic), level="WARNING", category="SCHEDULER")
                     _clear_phase_meta()
                     return False
             # Exhausted or not configured: persist error
             if use_incomplete_msg and incomplete_message_fn:
-                try:
-                    msg = incomplete_message_fn()
-                except Exception as exc:  # boundary: optional diagnostic callback
-                    self.log(
-                        f"Failed to build incomplete-phase diagnostic: {exc}",
-                        level="WARNING",
-                        category="SCHEDULER",
-                    )
-                    msg = None
-                if msg:
-                    if isinstance(msg, tuple):
-                        self.db_manager.tasks.set_error(self.task_id, msg[0], msg[1])
+                if incomplete_msg:
+                    if isinstance(incomplete_msg, tuple):
+                        self.db_manager.tasks.set_error(self.task_id, incomplete_msg[0], incomplete_msg[1])
                     else:
-                        self.db_manager.tasks.set_error(self.task_id, str(msg), "")
+                        self.db_manager.tasks.set_error(self.task_id, str(incomplete_msg), "")
                 else:
                     # Fallback aggregate
                     self.aggregate_subtask_errors("Phase incomplete after max retries", subtask_ids=[t[0] for t in (phase_tasks or [])])
