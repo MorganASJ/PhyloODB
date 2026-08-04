@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
 from datetime import datetime
@@ -63,6 +64,37 @@ def _external_command_error(
     if not stderr and not stdout and not log_tail:
         details.append("The program produced no diagnostic output.")
     return RuntimeError("\n".join(details))
+
+
+def ensure_shared_output_permissions(path: str, *, recursive: bool = False) -> None:
+    """Make task products usable by other members of their shared group."""
+    paths = [path]
+    if recursive and os.path.isdir(path):
+        paths.extend(
+            os.path.join(root, name)
+            for root, directories, files in os.walk(path)
+            for name in [*directories, *files]
+        )
+    for candidate in paths:
+        current = stat.S_IMODE(os.stat(candidate).st_mode)
+        if os.path.isdir(candidate):
+            desired = current | stat.S_IRWXU | stat.S_IRWXG | stat.S_ISGID
+        else:
+            desired = current | stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP
+        if desired != current:
+            os.chmod(candidate, desired)
+
+
+def output_failure_state(path: str) -> str:
+    if not os.path.exists(path):
+        return "missing"
+    if not os.access(path, os.R_OK):
+        try:
+            info = os.stat(path)
+            return f"unreadable (owner={info.st_uid}, mode={stat.filemode(info.st_mode)})"
+        except OSError:
+            return "unreadable"
+    return "invalid"
 
 
 def _resolve_executable(raw_path: object, fallback_names: Iterable[str]) -> Optional[str]:
@@ -237,6 +269,7 @@ def run_mafft_alignment(
         if not valid_mafft_alignment(temporary_path, str(input_fasta)):
             raise RuntimeError("MAFFT produced an invalid or incomplete alignment.")
         os.replace(temporary_path, output_path)
+        ensure_shared_output_permissions(output_path)
     finally:
         if temporary_path and os.path.exists(temporary_path):
             try:
@@ -294,6 +327,7 @@ def run_iqtree_analysis(
     best_tree = _read_best_tree_path(tree_dir, token)
     if not best_tree:
         raise FileNotFoundError(f"IQ-TREE completed but no tree file was found in {tree_dir}.")
+    ensure_shared_output_permissions(tree_dir, recursive=True)
     return tree_dir, best_tree, command
 
 
@@ -313,6 +347,10 @@ class MafftTask(Task):
         )
         command: list[str] = []
         if valid_mafft_alignment(output_path, input_fasta):
+            try:
+                ensure_shared_output_permissions(output_path)
+            except OSError as exc:
+                self.log(f"Could not make reused MAFFT alignment group-readable: {exc}", "WARNING")
             self.log(f"Using completed MAFFT alignment at {output_path}.", "INFO")
         else:
             if os.path.exists(output_path):
@@ -369,6 +407,10 @@ class IQTreeTask(Task):
         best_tree = _read_best_tree_path(tree_dir, token)
         command: list[str] = []
         if best_tree and not force_restart:
+            try:
+                ensure_shared_output_permissions(tree_dir, recursive=True)
+            except OSError as exc:
+                self.log(f"Could not make reused IQ-TREE results group-readable: {exc}", "WARNING")
             self.log(f"Using completed IQ-TREE tree at {best_tree}.", "INFO")
         else:
             if force_restart:
@@ -474,6 +516,10 @@ class BuildBuscoTreesTask(ExportLibraryTask):
         queued = False
         for row in self._family_rows():
             if valid_mafft_alignment(row["alignment_path"], row["raw_fasta"]):
+                try:
+                    ensure_shared_output_permissions(row["alignment_path"])
+                except OSError as exc:
+                    self.log(f"Could not make reused MAFFT alignment group-readable: {exc}", "WARNING")
                 continue
             self.queue_subtask(
                 job_type=32,
@@ -503,7 +549,7 @@ class BuildBuscoTreesTask(ExportLibraryTask):
         for row in rows:
             if valid_mafft_alignment(row["alignment_path"], row["raw_fasta"]):
                 continue
-            state = "invalid" if os.path.exists(row["alignment_path"]) else "missing"
+            state = output_failure_state(row["alignment_path"])
             failures.append(f"{row['family_id']} ({state}: {row['alignment_path']})")
         if not rows:
             return "MAFFT phase incomplete: no BUSCO family FASTAs were available."

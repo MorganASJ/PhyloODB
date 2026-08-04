@@ -23,6 +23,8 @@ from .trees import (
     DEFAULT_MAFFT_TASK_THREADS,
     expected_iqtree_tree_dir,
     expected_mafft_output_path,
+    ensure_shared_output_permissions,
+    output_failure_state,
     valid_iqtree_tree,
     valid_mafft_alignment,
 )
@@ -724,6 +726,10 @@ class AddLibraryTask(Task):
         ]
         for path in candidates:
             if valid_iqtree_tree(path):
+                try:
+                    ensure_shared_output_permissions(path)
+                except OSError as exc:
+                    self.log(f"Could not make reused IQ-TREE tree group-readable: {exc}", "WARNING")
                 return path
         return None
 
@@ -769,6 +775,8 @@ class AddLibraryTask(Task):
         os.makedirs(paths["align_dir"], exist_ok=True)
         os.makedirs(paths["iqtree_dir"], exist_ok=True)
         os.makedirs(paths["metadata_dir"], exist_ok=True)
+        for directory in (paths["align_dir"], paths["iqtree_dir"], paths["metadata_dir"]):
+            ensure_shared_output_permissions(directory)
 
     def _existing_fasttree_tree_path(self, orthogroup: str) -> Optional[str]:
         if not orthogroup or not self.orthofinder_location:
@@ -795,6 +803,10 @@ class AddLibraryTask(Task):
             if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]):
                 continue
             if valid_mafft_alignment(row["alignment_path"], row["raw_fasta"]):
+                try:
+                    ensure_shared_output_permissions(row["alignment_path"])
+                except OSError as exc:
+                    self.log(f"Could not make reused MAFFT alignment group-readable: {exc}", "WARNING")
                 continue
             self.queue_subtask(
                 job_type=32,
@@ -829,7 +841,7 @@ class AddLibraryTask(Task):
                 continue
             if valid_mafft_alignment(row["alignment_path"], row["raw_fasta"]):
                 continue
-            state = "invalid" if os.path.exists(row["alignment_path"]) else "missing"
+            state = output_failure_state(row["alignment_path"])
             failures.append(f"{row['orthogroup']} ({state}: {row['alignment_path']})")
         if not rows:
             return "MAFFT phase incomplete: no replacement orthogroups were available."
