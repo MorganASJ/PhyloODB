@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import stat
+import threading
 from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -54,6 +55,7 @@ class DBManager:
         self._env_updated_at = None
         self.conn = None
         self.cursor = None
+        self._cursor_lock = threading.RLock()
         self._transaction_depth = 0
         self._savepoint_counter = 0
         self._syncing_storage_env = False

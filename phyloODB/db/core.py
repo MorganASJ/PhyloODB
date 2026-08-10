@@ -49,6 +49,16 @@ class DatabaseCore:
     def cursor(self):
         return self.manager.cursor
 
+    @property
+    def cursor_lock(self):
+        """Serialize complete cursor operations for managers shared by threads."""
+
+        lock = getattr(self.manager, "_cursor_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self.manager._cursor_lock = lock
+        return lock
+
     def _retry_locked(self, operation):
         deadline = time.monotonic() + _busy_timeout_seconds()
         delay = 0.1
@@ -63,23 +73,27 @@ class DatabaseCore:
 
     def execute(self, sql: str, params: Iterable[Any] = ()):
         bound = tuple(params)
-        return self._retry_locked(lambda: self.cursor.execute(sql, bound))
+        with self.cursor_lock:
+            return self._retry_locked(lambda: self.cursor.execute(sql, bound))
 
     def executemany(self, sql: str, seq_of_params: Iterable[Iterable[Any]]):
         bound = tuple(tuple(params) for params in seq_of_params)
-        return self._retry_locked(lambda: self.cursor.executemany(sql, bound))
+        with self.cursor_lock:
+            return self._retry_locked(lambda: self.cursor.executemany(sql, bound))
 
     def fetchone(self, sql: str, params: Iterable[Any] = ()):
         try:
-            self.execute(sql, params)
-            return self.cursor.fetchone()
+            with self.cursor_lock:
+                self.execute(sql, params)
+                return self.cursor.fetchone()
         except sqlite3.Error as exc:
             raise RepositoryReadError(f"Database read failed: {exc}") from exc
 
     def fetchall(self, sql: str, params: Iterable[Any] = ()):
         try:
-            self.execute(sql, params)
-            return self.cursor.fetchall() or []
+            with self.cursor_lock:
+                self.execute(sql, params)
+                return self.cursor.fetchall() or []
         except sqlite3.Error as exc:
             raise RepositoryReadError(f"Database read failed: {exc}") from exc
 
