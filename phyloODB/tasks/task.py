@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
+import os
 import json
 import re
 import time
@@ -9,6 +10,7 @@ from typing import Any, List, Optional, Sequence
 from ..database import DBManager
 from ..errors import BatchFailure, BatchItemError, TaskExecutionError
 from ..logging_utils import configure_logging_from_db, get_task_logger
+from ..permissions import scratch_dir_from_manager, task_scratch_directory
 
 _TASK_ACRONYMS = {
     "busco": "BUSCO",
@@ -105,6 +107,21 @@ class Task(ABC):
         value = self.db_manager.get_environment_variable(key)
         token = str(value).strip() if value is not None else ""
         return token or default
+
+    def scratch_dir(self) -> str:
+        """Resolve disposable scratch in the current job environment."""
+        return scratch_dir_from_manager(self.db_manager)
+
+    def scratch_directory(self, *, prefix: str = "phyloodb-"):
+        """Return a cleaning context manager for a task-owned scratch directory."""
+        return task_scratch_directory(self.db_manager, prefix=prefix)
+
+    def durable_cache_dir(self, *parts: str) -> str:
+        """Return a durable cache directory suitable for checkpoints/subtasks."""
+        base = self.db_manager.storage.require_root_base("cache")
+        path = os.path.join(base, *parts) if parts else base
+        os.makedirs(path, exist_ok=True)
+        return path
 
     def payload_bool(self, key: str, default: bool = False) -> bool:
         if key in self.data:

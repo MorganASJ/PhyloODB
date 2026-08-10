@@ -97,7 +97,10 @@ class ExternalDecontaminationCheckTask(Task):
             if self.reuse_blast_results:
                 self.output_dir = self.reuse_blast_results
             else:
-                self.output_dir = tempfile.mkdtemp(prefix=f"ext_blast_{self.run_id}_")
+                self.output_dir = tempfile.mkdtemp(
+                    prefix=f"ext_blast_{self.run_id}_",
+                    dir=self.durable_cache_dir("external-decontamination"),
+                )
         try:
             os.makedirs(self.output_dir, exist_ok=True)
         except OSError as exc:

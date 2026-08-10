@@ -17,7 +17,11 @@ Run `phyloODB --version` to print the installed package version.
 Create and initialise a database.
 
 ```bash
-phyloODB project.db create [--force] [--taxdump PATH] [--retain-taxdump] [--working-dir DIR]
+phyloODB project.db create [--force] [--taxdump PATH] [--retain-taxdump] [--working-dir DIR] [--cache-dir DIR] [--scratch-dir DIR] [--shared --group GROUP]
+
+`--cache-dir` stores durable reusable downloads and indexes and defaults inside the project. `--scratch-dir` stores disposable job intermediates; when omitted it resolves `$TMPDIR` separately in each job. `--shared --group GROUP` enables group-write/setgid validation and a `0007` PhyloODB process umask. Existing paths are validated but never have ownership changed automatically.
+
+Run `phyloODB project.db storage check` for comprehensive storage and SQLite WAL probes. Runtime task dispatch performs only lightweight checks against that task's declared write paths.
 ```
 
 ### `list`

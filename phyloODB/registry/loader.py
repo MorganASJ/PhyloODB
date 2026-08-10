@@ -15,14 +15,13 @@ def load_entry_point_specs(registry: TaskRegistry) -> None:
     """Load TaskSpec providers from Python entry points.
 
     Third-party packages will expose a callable that returns an iterable of
-    TaskSpec instances. The callable is executed lazily so import side-effects
-    remain under control.
+    TaskSpec instances.
     """
 
     eps_collection = entry_points()
     if hasattr(eps_collection, "select"):
         eps: Sequence = eps_collection.select(group=ENTRY_POINT_GROUP)
-    else:  # pragma: no cover - Python <3.10 compatibility
+    else:
         eps = eps_collection.get(ENTRY_POINT_GROUP, [])
     for ep in eps:
         factory = ep.load()

@@ -68,6 +68,9 @@ _ENV_DEFINITION_OVERRIDES: dict[str, dict[str, Any]] = {
     "BUSCO_MINIPROT_KEEP_REF_FILE": {"type": "boolean", "default": False, "description": "Whether BUSCO Miniprot reference files should be retained."},
     "BUSCO_MINIPROT_PARAMETERS": {"type": "string-or-null", "default": None, "description": "Additional raw Miniprot parameters for BUSCO."},
     "CACHE_DIR": {"type": "path", "default": "/path/to/cache", "description": "Shared cache directory for reusable intermediate files."},
+    "PROJECT_PERMISSION_MODE": {"type": "string", "default": "private", "description": "Project filesystem policy: private or shared."},
+    "SCRATCH_DIR": {"type": "path-or-null", "default": None, "description": "Disposable job scratch; null resolves TMPDIR at task execution time."},
+    "SHARED_GROUP": {"type": "string-or-null", "default": None, "description": "Unix group required when PROJECT_PERMISSION_MODE is shared."},
     "DAEMON_MAX_THREADS": {"type": "integer", "default": 1, "description": "Maximum total threads the task daemon may allocate."},
     "DAEMON_PROCESS_POLLING_TIME": {"type": "number", "default": 2, "description": "Seconds between daemon task polling checks."},
     "DEFAULT_BUSCO_FORMAT": {"type": "string", "default": "protein", "description": "Default BUSCO input format when one is not supplied."},
@@ -250,6 +253,7 @@ def validate_variables_json_document(payload: Any) -> tuple[dict[str, Any], dict
     return values, kinds
 
 
+# Only for docs - DEL
 def example_variables_json_document() -> dict[str, Any]:
     """Return an importable example document for docs/variables.example.json."""
 

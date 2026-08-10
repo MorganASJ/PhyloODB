@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
-import hashlib
 from typing import Any, Optional, Tuple
 
 from .base import BaseRepository, transactional_methods
@@ -39,10 +37,7 @@ class StorageRepository(BaseRepository):
 
     def _default_cache_base_path(self) -> str:
         db_path = os.path.abspath(str(self.manager.get_path()) or "phyloodb")
-        db_name = os.path.splitext(os.path.basename(db_path))[0] or "phyloodb"
-        safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in db_name).strip("._-") or "phyloodb"
-        digest = hashlib.sha1(db_path.encode("utf-8")).hexdigest()[:10]
-        return os.path.abspath(os.path.join(tempfile.gettempdir(), "phyloodb", f"{safe_name}_{digest}", "cache"))
+        return os.path.join(os.path.dirname(db_path), "cache")
 
     def ensure_default_roots_from_env(self) -> None:
         if not getattr(self.manager, "cursor", None):

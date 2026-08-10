@@ -28,7 +28,7 @@ runtime toolchain and install the Python package directly from GitHub:
 mamba create -n phyloodb -c conda-forge -c bioconda \
   python=3.11 pip blast busco cd-hit mafft orthofinder iqtree
 conda activate phyloodb
-pip install "git+https://github.com/MorganASJ/PhyloODB_.git"
+pip install "git+https://github.com/MorganASJ/PhyloODB.git"
 ```
 
 ### Install from a release checkout
@@ -44,13 +44,4 @@ Install PhyloODB into that environment:
 
 ```bash
 pip install .
-```
-
-Check that the command-line entry points are available:
-
-```bash
-phyloODB --help
-phyloODB --version
-phyloODB-daemon --help
-cd-hit -h
 ```

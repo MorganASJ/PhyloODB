@@ -19,7 +19,7 @@ class CreateTaxonomyDB(Task):
         self.stage = checkpoint if checkpoint is not None else 0
         self.path_to_taxdump = self.data.get("path_to_taxdump", None)
         self.retain_taxdump = self.data.get("retain_taxdump", False)
-        self.working_dir = self.data.get("working_dir", tempfile.gettempdir())
+        self.working_dir = self.data.get("working_dir") or self.scratch_dir()
 
     def run(self):
         self.log("Starting taxonomy database setup.", "INFO")

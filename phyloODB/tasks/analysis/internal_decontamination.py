@@ -1224,7 +1224,10 @@ class InternalDecontaminationTask(Decontamination):
 
         external_check_enabled = self._external_check_enabled()
         if external_check_enabled and not self.external_blast_output_dir and not self.external_reuse_blast_results:
-            tmpdir = tempfile.mkdtemp(prefix=f"idc_external_{self.run_id}_")
+            tmpdir = tempfile.mkdtemp(
+                prefix=f"idc_external_{self.run_id}_",
+                dir=self.durable_cache_dir("internal-decontamination"),
+            )
             self.external_blast_output_dir = tmpdir
             self.data["external_blast_output_dir"] = self.external_blast_output_dir
             try:
@@ -1271,7 +1274,10 @@ class InternalDecontaminationTask(Decontamination):
 
         # Stage 2: build global BUSCO BLAST DB for targets
         if not self.internal_blastdb_path:
-            tmpdir = tempfile.mkdtemp(prefix=f"idc_refdb_{self.run_id}_")
+            tmpdir = tempfile.mkdtemp(
+                prefix=f"idc_refdb_{self.run_id}_",
+                dir=self.durable_cache_dir("internal-decontamination"),
+            )
             self.internal_blastdb_path = os.path.join(tmpdir, "internal_buscos")
             self.data["_internal_blastdb_path"] = self.internal_blastdb_path
             try:

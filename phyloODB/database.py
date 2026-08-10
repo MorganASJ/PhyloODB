@@ -102,6 +102,28 @@ class DBManager:
         return self.db_path
 
     def connect(self):
+        # Bootstrap a persisted shared-project umask before SQLite can create
+        # WAL/SHM sidecars. Creation handles the not-yet-existing DB explicitly.
+        if not self.read_only and Path(self.db_path).is_file():
+            bootstrap_conn = None
+            try:
+                bootstrap_conn = sqlite3.connect(
+                    f"{Path(self.db_path).resolve().as_uri()}?mode=ro",
+                    uri=True,
+                    timeout=1.0,
+                )
+                rows = bootstrap_conn.execute(
+                    "SELECT var_name, var_value FROM Environment_Variables "
+                    "WHERE var_name IN ('PROJECT_PERMISSION_MODE', 'SHARED_GROUP')"
+                ).fetchall()
+                values = {str(name): json.loads(value) for name, value in rows}
+                from .permissions import apply_shared_umask, policy_from_values
+                apply_shared_umask(policy_from_values(values))
+            except (sqlite3.Error, ValueError):
+                pass
+            finally:
+                if bootstrap_conn is not None:
+                    bootstrap_conn.close()
         connect_target = self.db_path
         connect_kwargs = {}
         if self.read_only:

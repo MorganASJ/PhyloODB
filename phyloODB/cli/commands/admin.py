@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -9,6 +10,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ...database import DBManager
+from ...db.errors import StorageOperationError
+from ...permissions import (
+    PermissionPolicy,
+    apply_shared_umask,
+    comprehensive_directory_probe,
+    resolve_scratch_dir,
+    resolve_group,
+    sqlite_wal_probe,
+    validate_config_updates,
+)
 from ...selector_utils import resolve_selector_accessions
 from ...services.discovery_service import DiscoveryService
 from ...services.task_service import TaskService
@@ -50,7 +61,10 @@ def _handle_set(args: argparse.Namespace) -> int:
                 return _print_error("Variable JSON did not contain any importable variables.")
             manager = _connect_manager(args.database)
             try:
+                values = validate_config_updates(manager, values)
                 manager.set_environment_variables(values, kinds=kinds)
+            except (ValueError, StorageOperationError) as exc:
+                return _print_error(str(exc))
             finally:
                 manager.close()
             print(f"Imported {len(values)} variable(s) from {json_path}.")
@@ -85,7 +99,10 @@ def _handle_set(args: argparse.Namespace) -> int:
 
         manager = _connect_manager(args.database)
         try:
-            manager.set_environment_variable(key, value_json, kind=kind)
+            normalized = validate_config_updates(manager, {key: value_json})
+            manager.set_environment_variable(key, normalized[key], kind=kind)
+        except (ValueError, StorageOperationError) as exc:
+            return _print_error(str(exc))
         finally:
             manager.close()
         if getattr(args, "legacy_syntax", False):
@@ -654,6 +671,9 @@ def init_default_environment(
     db_path: str,
     working_dir: Optional[str] = None,
     *,
+    cache_dir: Optional[str] = None,
+    scratch_dir: Optional[str] = None,
+    permission_policy: Optional[PermissionPolicy] = None,
     email: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> None:
@@ -666,7 +686,7 @@ def init_default_environment(
     exports_dir = os.path.join(base_dir, "exports")
     reports_dir = os.path.join(base_dir, "reports")
     misc_dir = os.path.join(base_dir, "misc")
-    cache_dir = mgr.storage._default_cache_base_path()
+    cache_dir = cache_dir or os.path.join(base_dir, "cache")
     logs_dir = os.path.join(base_dir, "logs")
     for d in (genomes_dir, libraries_dir, orthofinder_dir, exports_dir, reports_dir, misc_dir, cache_dir, logs_dir):
         os.makedirs(d, exist_ok=True)
@@ -685,6 +705,9 @@ def init_default_environment(
         "REPORTS_DIR": reports_dir,
         "MISC_DIR": misc_dir,
         "CACHE_DIR": cache_dir,
+        "SCRATCH_DIR": scratch_dir,
+        "PROJECT_PERMISSION_MODE": (permission_policy or PermissionPolicy()).mode,
+        "SHARED_GROUP": (permission_policy or PermissionPolicy()).group,
         "LOG_DIR": logs_dir,
         "BUSCO_BINARIES_PATH": "busco",
         "ORTHOFINDER_BINARIES_PATH": "orthofinder",
@@ -758,12 +781,45 @@ def _handle_clear(args: argparse.Namespace) -> int:
 def _handle_create(args: argparse.Namespace) -> int:
     """Create a new database, seed defaults, and import taxonomy immediately."""
 
-    db_path = args.database
+    db_path = os.path.abspath(args.database)
     if os.path.exists(db_path) and not args.force:
         return _print_error(f"Database already exists at {db_path}. Use --force to overwrite.")
-    db_dir = os.path.dirname(os.path.abspath(db_path))
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
+    shared = bool(getattr(args, "shared", False))
+    group_name = getattr(args, "group", None)
+    if group_name and not shared:
+        return _print_error("--group requires --shared.")
+    policy = PermissionPolicy("shared" if shared else "private", group_name if shared else None)
+    try:
+        if shared:
+            resolve_group(group_name)
+        apply_shared_umask(policy)
+        db_dir = os.path.dirname(db_path) or os.getcwd()
+        base_dir = os.path.abspath(getattr(args, "working_dir", None) or db_dir)
+        cache_dir = os.path.abspath(getattr(args, "cache_dir", None) or os.path.join(base_dir, "cache"))
+        scratch_value = getattr(args, "scratch_dir", None)
+        scratch_dir = resolve_scratch_dir(scratch_value)
+        durable_dirs = [
+            os.path.join(base_dir, name)
+            for name in ("genomes", "libraries", "orthofinder", "exports", "reports", "misc", "logs")
+        ] + [cache_dir]
+        preexisting = {
+            path: Path(path).exists()
+            for path in [db_dir, *durable_dirs, scratch_dir]
+        }
+        checks = [sqlite_wal_probe(db_dir, policy=policy)]
+        checks.extend(comprehensive_directory_probe(path, policy=policy, create=True) for path in durable_dirs)
+        # Scratch is job-local and deliberately does not need the project's group/setgid policy.
+        checks.append(comprehensive_directory_probe(scratch_dir, create=True))
+        failures = [check for check in checks if not check.ok]
+        if failures:
+            for path, existed in reversed(list(preexisting.items())):
+                if not existed:
+                    with contextlib.suppress(OSError):
+                        Path(path).rmdir()
+            details = "\n".join(f"- {check.path}: {check.message}" for check in failures)
+            return _print_error(f"Creation preflight failed; the existing database was not changed:\n{details}")
+    except (OSError, StorageOperationError, ValueError) as exc:
+        return _print_error(str(exc))
     if os.path.exists(db_path) and args.force:
         try:
             os.remove(db_path)
@@ -781,6 +837,9 @@ def _handle_create(args: argparse.Namespace) -> int:
             manager,
             db_path,
             getattr(args, "working_dir", None),
+            cache_dir=cache_dir,
+            scratch_dir=scratch_value,
+            permission_policy=policy,
             email=getattr(args, "email", None),
             api_key=getattr(args, "api_key", None),
         )
@@ -798,6 +857,10 @@ def _handle_create(args: argparse.Namespace) -> int:
 
         service = TaskService(db_path, db_manager=manager)
         service.run_immediately("create-taxonomy", payload=payload or {})
+        if policy.shared:
+            group = resolve_group(policy.group)
+            os.chown(db_path, -1, group.gr_gid)
+            os.chmod(db_path, 0o660)
     finally:
         manager.close()
     print(f"Created database at {db_path}.")
@@ -819,8 +882,24 @@ def _handle_reset(args: argparse.Namespace) -> int:
 
     manager = DBManager(args.database)
     try:
+        manager.connect()
+        saved = manager.get_environment_variables(
+            ["PROJECT_PERMISSION_MODE", "SHARED_GROUP", "CACHE_DIR", "SCRATCH_DIR"]
+        ) or {}
+        policy = PermissionPolicy(
+            str(saved.get("PROJECT_PERMISSION_MODE") or "private"),
+            saved.get("SHARED_GROUP"),
+        )
+        apply_shared_umask(policy)
         manager.reset()
-        init_default_environment(manager, args.database, getattr(args, "working_dir", None))
+        init_default_environment(
+            manager,
+            args.database,
+            getattr(args, "working_dir", None),
+            cache_dir=saved.get("CACHE_DIR"),
+            scratch_dir=saved.get("SCRATCH_DIR"),
+            permission_policy=policy,
+        )
 
         payload: Dict[str, Any] = {}
         working_dir = getattr(args, "working_dir", None)
@@ -1102,6 +1181,10 @@ def register_admin_parsers(
     create_parser.add_argument("--taxdump", default=None, help="Optional path to new_taxdump.tar.gz.")
     create_parser.add_argument("--retain-taxdump", dest="retain_taxdump", action="store_true", help="Retain downloaded taxdump after import.")
     create_parser.add_argument("--working-dir", default=None, help="Working directory for taxonomy import/default paths.")
+    create_parser.add_argument("--cache-dir", default=None, help="Durable cache directory (default: WORKING_DIR/cache).")
+    create_parser.add_argument("--scratch-dir", default=None, help="Disposable job scratch directory (default: runtime TMPDIR).")
+    create_parser.add_argument("--shared", action="store_true", help="Create a POSIX group-shared project.")
+    create_parser.add_argument("--group", default=None, help="Unix group for --shared projects.")
     create_parser.add_argument("--email", default=None, help="Optional email to store as EMAIL for NCBI-backed workflows.")
     create_parser.add_argument("--api-key", dest="api_key", default=None, help="Optional NCBI API key to store as NCBI_API_KEY.")
     create_parser.set_defaults(handler=_handle_create)

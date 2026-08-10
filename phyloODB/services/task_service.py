@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Sequence
 from ..database import DBManager
 from ..errors import TaskExecutionError
 from ..logging_utils import configure_logging_from_db
+from ..permissions import preflight_task
 from ..registry import registry
 from ..selector_utils import expand_accession_variables
 from ..schemas import TaskPayload
@@ -16,11 +17,6 @@ from ..thread_defaults import refresh_runtime_thread_defaults, resolve_task_requ
 
 class TaskService:
     """Facade for queueing tasks with schema validation.
-
-    This service will gradually replace the ad-hoc queue/build logic currently
-    spread across the CLI and individual Task classes. Concrete methods will be
-    filled in during subsequent steps; for now we establish the contract so
-    other components (CLI, tests) can rely on a stable API.
     """
 
     def __init__(self, db_path: str, *, db_manager: Optional[DBManager] = None):
@@ -250,6 +246,7 @@ class TaskService:
         data_dict = self._expand_accession_payload(data_dict)
         model = spec.payload_model(**data_dict)
         data_json = spec.serialise_payload(model)
+        preflight_task(self.db_manager, spec, data_dict)
         with self.db_manager.transaction(operation=f"prepare immediate {spec.key} task"):
             task_id = self.db_manager.tasks.queue(
                 job_type=spec.job_type,

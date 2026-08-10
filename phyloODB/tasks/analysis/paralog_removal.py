@@ -471,7 +471,7 @@ class ParalogRemovalTask(Task):
         return f"paralog_{self.library_id}_{stamp}_{uuid.uuid4().hex[:8]}"
 
     def _write_query_batch(self, query_records: list[dict[str, Any]]) -> str:
-        tmp = tempfile.NamedTemporaryFile("w", suffix=".faa", delete=False)
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".faa", delete=False, dir=self.scratch_dir())
         try:
             for record in query_records:
                 tmp.write(f">{record['qseqid']}\n{record['sequence']}\n")
@@ -651,7 +651,7 @@ class ParalogRemovalTask(Task):
         return None, None
 
     def _write_temp_query_record(self, header, sequence):
-        tmp = tempfile.NamedTemporaryFile("w", suffix=".faa", delete=False)
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".faa", delete=False, dir=self.scratch_dir())
         try:
             tmp.write(f">{header}\n{sequence}\n")
             tmp.flush()

@@ -10,6 +10,14 @@ from typing import Any, Optional, Sequence
 
 from ..database import DBManager
 from ..db.errors import StorageOperationError
+from ..permissions import (
+    PermissionPolicy,
+    comprehensive_directory_probe,
+    policy_from_manager,
+    quick_check_database_file,
+    resolve_scratch_dir,
+    sqlite_wal_probe,
+)
 from ..selector_utils import SelectorRequest, resolve_selector_accessions
 from .task_service import TaskService
 
@@ -87,32 +95,61 @@ class StorageAdminService:
         self._ensure_connection()
         return self.db_manager.storage.list_roots(kind=kind)
 
-    @staticmethod
-    def _prepare_root_directory(base_path: str) -> str:
+    def check_storage(self) -> list[dict[str, Any]]:
+        """Comprehensively validate SQLite WAL, durable roots, and job scratch."""
+        self._ensure_connection()
+        policy = policy_from_manager(self.db_manager)
+        db_parent = Path(self.db_path).expanduser().resolve(strict=False).parent
+        db_result = sqlite_wal_probe(db_parent, policy=policy)
+        db_file = quick_check_database_file(self.db_path, policy=policy)
+        if db_result.ok and not db_file.ok:
+            db_result = db_file
+        results = [{
+            "kind": "database",
+            "source": "database parent",
+            "path": db_result.path,
+            "ok": db_result.ok,
+            "mode": db_result.mode,
+            "group": db_result.group,
+            "message": db_result.message,
+        }]
+        for row in self.db_manager.storage.list_roots() or []:
+            checked = comprehensive_directory_probe(str(row[3]), policy=policy)
+            results.append({
+                "kind": str(row[1]),
+                "source": str(row[2] or f"root {row[0]}"),
+                "path": checked.path,
+                "ok": checked.ok,
+                "mode": checked.mode,
+                "group": checked.group,
+                "message": checked.message,
+            })
+        scratch_value = self.db_manager.get_environment_variable("SCRATCH_DIR")
+        checked = comprehensive_directory_probe(resolve_scratch_dir(scratch_value))
+        results.append({
+            "kind": "scratch",
+            "source": "SCRATCH_DIR" if scratch_value else "runtime TMPDIR",
+            "path": checked.path,
+            "ok": checked.ok,
+            "mode": checked.mode,
+            "group": checked.group,
+            "message": checked.message,
+        })
+        return results
+
+    def _prepare_root_directory(self, base_path: str) -> str:
         raw_path = str(base_path or "").strip()
         if not raw_path:
             raise StorageOperationError("A storage root base path is required.")
         try:
             path = Path(raw_path).expanduser().resolve(strict=False)
-            path.mkdir(parents=True, exist_ok=True)
-            if not path.is_dir():
-                raise NotADirectoryError(f"Path is not a directory: {path}")
-            with os.scandir(path):
-                pass
-            probe_fd, probe_path = tempfile.mkstemp(prefix=".phyloodb-write-test-", dir=path)
-            try:
-                os.close(probe_fd)
-                os.unlink(probe_path)
-            except BaseException:  # boundary: cleanup the probe while preserving interrupts and the original failure
-                try:
-                    os.close(probe_fd)
-                except OSError:
-                    pass
-                try:
-                    os.unlink(probe_path)
-                except OSError:
-                    pass
-                raise
+            checked = comprehensive_directory_probe(
+                path,
+                policy=policy_from_manager(self.db_manager),
+                create=True,
+            )
+            if not checked.ok:
+                raise OSError(checked.message)
         except (OSError, RuntimeError) as exc:
             raise StorageOperationError(
                 f"Storage root '{raw_path}' could not be created or verified as readable and writable: {exc}"
@@ -306,6 +343,14 @@ class StorageAdminService:
         plan = self.plan_rebind_root(root_id=root_id, new_base_path=new_base_path)
         if not os.path.isdir(plan.new_base_path):
             raise ValueError(f"Destination base path does not exist: {plan.new_base_path}")
+        checked = comprehensive_directory_probe(
+            plan.new_base_path,
+            policy=policy_from_manager(self.db_manager),
+        )
+        if not checked.ok:
+            raise StorageOperationError(
+                f"Destination root '{checked.path}' failed preflight: {checked.message}"
+            )
         self.db_manager.storage.rebind_root(int(plan.root_id), plan.new_base_path)
         verify_task_ids = self.queue_verify_for_root_plan(plan, verify=verify)
         return {"plan": plan, "verify_task_ids": verify_task_ids}

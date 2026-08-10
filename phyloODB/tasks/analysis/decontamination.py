@@ -640,7 +640,7 @@ class Decontamination(Task):
         return None, None
 
     def _write_temp_query_record(self, header, sequence):
-        tmp = tempfile.NamedTemporaryFile("w", suffix=".faa", delete=False)
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".faa", delete=False, dir=self.scratch_dir())
         try:
             tmp.write(f">{header}\n{sequence}\n")
             tmp.flush()
@@ -952,7 +952,10 @@ class Decontamination(Task):
 
         # Stage 2: build combined BUSCO BLAST DB for references (only BUSCO mode supported)
         if not self.ref_blastdb_path:
-            tmpdir = tempfile.mkdtemp(prefix=f"dc_refdb_{self.run_id}_")
+            tmpdir = tempfile.mkdtemp(
+                prefix=f"dc_refdb_{self.run_id}_",
+                dir=self.durable_cache_dir("decontamination"),
+            )
             self.ref_blastdb_path = os.path.join(tmpdir, "ref_buscos")
             self.data["_ref_blastdb_path"] = self.ref_blastdb_path
             try:

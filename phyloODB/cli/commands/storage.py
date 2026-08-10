@@ -6,6 +6,7 @@ import sys
 from typing import Any, Mapping, Optional, Sequence
 
 from ...services.storage_admin_service import StorageAdminService
+from ...db.errors import StorageOperationError
 from ..support.argparse_utils import AppendCommaSeparated
 from ..support.common import STORAGE_ROOT_KINDS, _print_error
 from ..support.output import _format_tsv, _render_list_output
@@ -64,6 +65,27 @@ def _handle_storage_roots(args: argparse.Namespace) -> int:
     """Alias handler for ``storage roots``."""
 
     return _handle_list_roots(args)
+
+
+def _handle_storage_check(args: argparse.Namespace) -> int:
+    service = StorageAdminService(args.database)
+    try:
+        results = service.check_storage()
+    except (ValueError, OSError, StorageOperationError) as exc:
+        return _print_error(str(exc))
+    finally:
+        service.db_manager.close()
+    rows = [
+        (
+            str(item["kind"]), str(item["source"]), str(item["path"]),
+            "ok" if item["ok"] else "failed",
+            f"{item['mode']:04o}" if item["mode"] is not None else "",
+            str(item["group"] or ""), str(item["message"]),
+        )
+        for item in results
+    ]
+    print(_format_tsv(("kind", "source", "path", "status", "mode", "group", "message"), rows))
+    return 0 if all(bool(item["ok"]) for item in results) else 1
 
 
 def _handle_storage_add_root(args: argparse.Namespace) -> int:
@@ -404,6 +426,8 @@ def _handle_storage(args: argparse.Namespace) -> int:
 
     if args.storage_action == "roots":
         return _handle_storage_roots(args)
+    if args.storage_action == "check":
+        return _handle_storage_check(args)
     if args.storage_action == "add-root":
         return _handle_storage_add_root(args)
     if args.storage_action == "rename-root":
@@ -439,6 +463,9 @@ def register_storage_parser(
     storage_roots = storage_sub.add_parser("roots", help="Alias of 'list roots'.")
     storage_roots.add_argument("--kind", choices=STORAGE_ROOT_KINDS, help="Filter listed roots by logical kind.")
     storage_roots.set_defaults(handler=_handle_storage)
+
+    storage_check = storage_sub.add_parser("check", help="Probe database WAL, durable roots, and job scratch.")
+    storage_check.set_defaults(handler=_handle_storage)
 
     storage_add_root = storage_sub.add_parser("add-root", help="Create or reuse a storage root.")
     storage_add_root.add_argument("--kind", choices=STORAGE_ROOT_KINDS, required=True, help="Logical kind for the root.")

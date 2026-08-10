@@ -436,6 +436,7 @@ def clean_proteome_in_genome_path(
     silent: bool = True,
     revert_from_archive: bool = False,
     force_reclean: bool = False,
+    scratch_dir: str | None = None,
 ) -> Dict[str, object]:
     if revert_from_archive:
         return revert_proteome_from_archive(genome_path)
@@ -464,7 +465,7 @@ def clean_proteome_in_genome_path(
     if not faa_file:
         return {"ok": False, "status": "no_faa"}
 
-    with tempfile.TemporaryDirectory(prefix="clean_isoforms_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="clean_isoforms_", dir=scratch_dir) as temp_dir:
         working_faa = _prepare_working_faa(faa_file, temp_dir)
         input_count = count_faa_headers(working_faa)
         current_file = working_faa
@@ -573,11 +574,12 @@ def prepare_proteome_profile(
     cdhit_identity: float = 0.96,
     cdhit_threads: int = 1,
     silent: bool = True,
+    scratch_dir: str | None = None,
 ) -> Dict[str, object]:
     if not source_faa or not os.path.exists(source_faa):
         return {"ok": False, "status": "no_source_faa", "faa": source_faa}
 
-    with tempfile.TemporaryDirectory(prefix="prepare_proteome_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="prepare_proteome_", dir=scratch_dir) as temp_dir:
         working_faa = _prepare_working_faa(source_faa, temp_dir)
         input_count = count_faa_headers(working_faa)
         current_file = working_faa

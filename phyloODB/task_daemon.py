@@ -12,6 +12,7 @@ from .tasks.task import Task
 from .logging_utils import configure_logging_from_db, get_task_logger
 from .registry import registry
 from .thread_defaults import refresh_runtime_thread_defaults, resolve_task_required_threads
+from .permissions import preflight_task
 
 class TaskDaemon(Task):
     def __init__(
@@ -862,6 +863,8 @@ class TaskDaemon(Task):
             payload = {}
         payload["required_threads"] = int(required_threads)
         data_json = json.dumps(payload)
+
+        preflight_task(self.db_manager, spec, payload)
 
         return spec.build_task(
             self.db_manager.get_path(),

@@ -55,6 +55,36 @@ class TaskFactory(Protocol[TaskT]):
         ...
 PayloadT = TypeVar("PayloadT", bound=TaskPayload)
 
+_BUILTIN_IO: dict[str, tuple[tuple[str, ...], bool, tuple[str, ...]]] = {
+    "update-assembly": ((), True, ()),
+    "download-assemblies": (("genomes",), True, ()),
+    "add-library": (("libraries", "reports"), True, ()),
+    "busco-run": (("genomes",), True, ()),
+    "orthofinder-run": (("orthofinder",), True, ("out_dir",)),
+    "download-busco-library": (("libraries",), True, ()),
+    "import-local-assembly": (("genomes",), True, ()),
+    "create-taxonomy": (("misc",), True, ("working_dir",)),
+    "export-library": (("exports", "reports"), True, ("out_dir", "output_dir")),
+    "generate-lineage-csv": (("reports",), False, ("output", "output_path")),
+    "finalize-genome-move": (("genomes",), False, ()),
+    "batch-import-local-assembly": (("genomes",), True, ()),
+    "create-proteome-blast-db": (("genomes", "cache"), True, ("out_dir",)),
+    "paralog-removal": (("cache", "reports"), True, ("report_dir",)),
+    "BatchBuscoTask": (("genomes",), True, ()),
+    "construct-busco-blast-db": (("cache",), True, ("out_dir",)),
+    "decontamination": (("reports", "cache"), True, ("output_dir",)),
+    "internal-decontamination": (("reports", "cache"), True, ("output_dir",)),
+    "external-decontamination-check": (("reports", "cache"), True, ("output_dir",)),
+    "external-decontamination-apply": (("reports",), True, ("output_dir",)),
+    "split-records": (("misc",), True, ("output", "output_path")),
+    "import-custom-library": (("libraries",), True, ("location",)),
+    "prepare-proteome": (("genomes",), True, ()),
+    "mafft-run": (("misc",), True, ("out_dir",)),
+    "iqtree-run": (("misc",), True, ("out_dir",)),
+    "build-busco-trees": (("misc",), True, ("out_dir",)),
+    "annotate-orthogroup-tree": (("misc",), True, ("output", "output_path")),
+}
+
 
 @dataclass(slots=True)
 class TaskSpec:
@@ -71,9 +101,24 @@ class TaskSpec:
     display_name: Optional[str] = None
     queue_defaults: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    write_root_kinds: tuple[str, ...] = ()
+    uses_scratch: bool = False
+    output_path_fields: tuple[str, ...] = ()
     checkpoint_schema: Optional[Type[BaseModel]] = None
     cli_handler: Optional[str] = None
     requires_checkpoint: bool = False
+
+    def __post_init__(self) -> None:
+        defaults = _BUILTIN_IO.get(self.key)
+        if defaults is None:
+            return
+        roots, scratch, fields = defaults
+        if not self.write_root_kinds:
+            self.write_root_kinds = roots
+        if not self.uses_scratch:
+            self.uses_scratch = scratch
+        if not self.output_path_fields:
+            self.output_path_fields = fields
 
     def serialise_payload(self, payload: Mapping[str, Any] | TaskPayload) -> str:
         """Return a JSON string representation for the database."""

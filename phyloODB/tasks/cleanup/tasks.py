@@ -211,6 +211,7 @@ class PrepareProteomeTask(Task):
                 cdhit_identity=self.cdhit_identity,
                 cdhit_threads=cdhit_threads,
                 silent=True,
+                scratch_dir=self.scratch_dir(),
             )
             outcome["accession"] = str(job["accession"])
             return outcome

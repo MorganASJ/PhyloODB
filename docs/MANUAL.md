@@ -2305,6 +2305,12 @@ project/
 └── misc/
 ```
 
+The project `cache/` is durable and may contain reusable downloads or indexes. Disposable intermediates use `SCRATCH_DIR`; when it is null, PhyloODB resolves the job's `$TMPDIR` at execution time, which allows HPC jobs to use node-local scratch. Scratch must not be used as the permanent location of a registered artifact.
+
+For a POSIX group project, create with `--shared --group GROUP`. PhyloODB creates its own directories group-writable with setgid and uses umask `0007`, but it never changes ownership on arbitrary existing paths. Those paths must already have the requested group, group write permission, and setgid; failures include an administrator command. The policy is stored in `PROJECT_PERMISSION_MODE` and `SHARED_GROUP`. Prepare existing paths before changing either variable, then run `storage check`. Change the durable cache through `storage rebind-root CACHE_DIR --base-path PATH --apply`, not by assigning `CACHE_DIR` directly.
+
+Linux, macOS, and WSL2 are supported targets. Under WSL2, keep databases in the Linux filesystem rather than `/mnt/c`. Native Windows is not supported for full analyses. Shared SQLite projects require reliable filesystem locking and should use one active write daemon per database.
+
 You can inspect the registered roots with:
 
 ```bash
