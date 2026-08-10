@@ -406,6 +406,19 @@ library constructed using each OrthoFinder-derived BUSCO row. The value is blank
 for non-OrthoFinder rows, and its provenance is only loaded when this metadata
 field is requested.
 
+`list busco-runs` includes the same `orthofinder_target_library` provenance as a
+run-level column and accepts it in `--filter`. Because filtering happens before
+`--ids-only` and `--store-results`, matching OrthoFinder runs can be selected and
+reused directly:
+
+```bash
+phyloODB project.db list busco-runs \
+  --accessions @METAZOA_CORE \
+  --busco-pipeline orthofinder \
+  --filter "orthofinder_target_library=metazoa_core" \
+  --store-results METAZOA_CORE_ORTHOFINDER_RUNS
+```
+
 ### `prepare-proteome` defaults
 
 `prepare-proteome` creates a derived proteome profile without mutating the raw proteome.

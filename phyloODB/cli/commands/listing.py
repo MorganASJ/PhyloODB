@@ -13,6 +13,8 @@ from ...proteome_profile_utils import RAW_PROFILE
 from ...registry import registry
 from ...selector_utils import (
     collect_accession_candidates,
+    _evaluate_filter_condition,
+    _parse_filter_expression,
     expand_accession_variables,
     expand_busco_run_id_variables,
     filter_accessions_by_busco_selectors,
@@ -933,11 +935,58 @@ def _infer_busco_library_from_run_ids(manager: DBManager, run_ids: Sequence[int]
     return library_ids[0]
 
 
+def _split_busco_run_metadata_filters(
+    filters: Any,
+) -> Tuple[List[str], List[List[List[Dict[str, Any]]]]]:
+    """Separate run-provenance filters from accession-level selector filters."""
+
+    ordinary: List[str] = []
+    target_filters: List[List[List[Dict[str, Any]]]] = []
+    for expression in filters or []:
+        groups = _parse_filter_expression(str(expression))
+        fields = {
+            str(condition.get("field") or "").strip().lower()
+            for group in groups
+            for condition in group
+        }
+        target_names = {"orthofinder_target_library", "of_target_library"}
+        if fields & target_names:
+            if not fields <= target_names:
+                raise ValueError(
+                    "orthofinder_target_library cannot currently be combined with other fields "
+                    "inside the same --filter expression; pass them as separate --filter options."
+                )
+            target_filters.append(groups)
+        else:
+            ordinary.append(str(expression))
+    return ordinary, target_filters
+
+
+def _matches_busco_run_metadata_filters(
+    value: str,
+    filters: Sequence[List[List[Dict[str, Any]]]],
+) -> bool:
+    """Evaluate repeated run-provenance filters using normal filter semantics."""
+
+    return all(
+        any(all(_evaluate_filter_condition(value, condition) for condition in group) for group in groups)
+        for groups in filters
+    )
+
+
 def _handle_list_busco_runs(args: argparse.Namespace) -> int:
     """List BUSCO run records matching the active selectors."""
 
     manager = _connect_manager(args.database, read_only=not _list_requires_write(args))
     try:
+        try:
+            ordinary_filters, target_library_filters = _split_busco_run_metadata_filters(
+                getattr(args, "filters", None) or []
+            )
+        except ValueError as exc:
+            return _print_error(str(exc))
+        selector_args = argparse.Namespace(**vars(args))
+        selector_args.filters = ordinary_filters or None
         busco_library = _resolve_library_selector(
             manager,
             library_id=getattr(args, "library_id", None),
@@ -945,7 +994,7 @@ def _handle_list_busco_runs(args: argparse.Namespace) -> int:
             legacy=getattr(args, "busco_library", None),
         )
         selectors = _selector_request_from_args(
-            args,
+            selector_args,
             profile="busco_listing",
             busco_library_id=busco_library,
             manager=manager,
@@ -989,6 +1038,25 @@ def _handle_list_busco_runs(args: argparse.Namespace) -> int:
             tuple(params),
         )
         rows = manager.cursor.fetchall() or []
+        orthofinder_run_ids = [
+            int(row[0])
+            for row in rows
+            if row and str(row[3] or "").strip().lower() == "orthofinder"
+        ]
+        target_libraries = (
+            _fetch_orthofinder_target_libraries(manager, orthofinder_run_ids)
+            if orthofinder_run_ids and (target_library_filters or not getattr(args, "ids_only", False))
+            else {}
+        )
+        if target_library_filters:
+            rows = [
+                row
+                for row in rows
+                if _matches_busco_run_metadata_filters(
+                    target_libraries.get(int(row[0]), ""),
+                    target_library_filters,
+                )
+            ]
         run_accessions = [str(row[1]) for row in rows if row and row[1] is not None]
         assembly_info = _fetch_assembly_info(manager, run_accessions)
         profile_display_info = _fetch_proteome_profile_display_info(manager, run_accessions)
@@ -1065,6 +1133,7 @@ def _handle_list_busco_runs(args: argparse.Namespace) -> int:
                     str(species),
                     str(lib_name or ""),
                     _busco_pipeline_display(pipeline, input_mode),
+                    target_libraries.get(int(run_id), ""),
                     str(input_mode or ""),
                     profile_display,
                     "1" if details and details.get("default") else ("1" if profile_display not in {"", "unset"} and is_default_profile else ""),
@@ -1083,6 +1152,7 @@ def _handle_list_busco_runs(args: argparse.Namespace) -> int:
             "species",
             "library",
             "pipeline",
+            "orthofinder_target_library",
             "input_mode",
             "proteome_profile",
             "profile_default",
@@ -1101,6 +1171,7 @@ def _handle_list_busco_runs(args: argparse.Namespace) -> int:
             aliases={
                 "id": "run_id",
                 "lib": "library",
+                "of_target_library": "orthofinder_target_library",
                 "busco.complete": "complete",
                 "busco.single_copy": "single_copy",
                 "busco.single_copy_complete": "single_copy",
@@ -2688,7 +2759,7 @@ def register_list_parser(
     _add_basic_list_output_options(list_busco_runs_output_group)
     _add_row_sort_option(
         list_busco_runs_output_group,
-        fields="run_id, accession, species, library, pipeline, input_mode, status, complete, single_copy, busco.single_copy_complete, quality, completed_at",
+        fields="run_id, accession, species, library, pipeline, orthofinder_target_library, input_mode, status, complete, single_copy, busco.single_copy_complete, quality, completed_at",
     )
     list_busco_runs.set_defaults(handler=list_handler)
 

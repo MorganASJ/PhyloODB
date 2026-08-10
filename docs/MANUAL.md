@@ -581,6 +581,10 @@ Add `--meta orthofinder_target_library` to distinguish OrthoFinder-derived rows
 created for different target libraries. The column is blank for ordinary BUSCO
 rows. Its shorter alias is `of_target_library`.
 
+The same field is included by `list busco-runs` and can be filtered before
+emitting or storing run ids, for example
+`--filter "orthofinder_target_library=metazoa_core" --store-results CORE_O_RUNS`.
+
 For practical purposes:
 
 - `miniprot` ( - Mi), `metaeuk` ( - Me), and `augustus` ( - Au) identify the BUSCO pipeline;
