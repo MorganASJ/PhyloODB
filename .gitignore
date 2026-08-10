@@ -17,3 +17,5 @@ tutorial/*.db
 tutorial/logs/
 
 **__pycache__**
+
+prod

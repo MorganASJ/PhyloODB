@@ -577,6 +577,10 @@ phyloODB my_project.db list results \
 
 To see more information use `list busco-runs`
 
+Add `--meta orthofinder_target_library` to distinguish OrthoFinder-derived rows
+created for different target libraries. The column is blank for ordinary BUSCO
+rows. Its shorter alias is `of_target_library`.
+
 For practical purposes:
 
 - `miniprot` ( - Mi), `metaeuk` ( - Me), and `augustus` ( - Au) identify the BUSCO pipeline;

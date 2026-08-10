@@ -259,6 +259,7 @@ METADATA_FIELDS: Dict[str, Dict[str, str]] = {
     "protein": {"label": "protein", "sql": "g.protein", "source": "Genome", "description": "Protein flag."},
     "isoforms_cleaned": {"label": "isoforms_cleaned", "sql": "g.isoforms_cleaned", "source": "Genome", "description": "Isoform-cleaned flag (0/1)."},
     "proteome_profile": {"label": "proteome_profile", "sql": "", "source": "BUSCORun", "description": "Proteome profile used by the listed BUSCO run when BUSCO rows are shown."},
+    "orthofinder_target_library": {"label": "orthofinder_target_library", "sql": "", "source": "BUSCORun", "description": "Library constructed using the listed OrthoFinder-derived BUSCO run."},
     "default_proteome_profile": {"label": "default_proteome_profile", "sql": "", "source": "ProteomeProfile", "description": "Default proteome profile for the accession."},
     "genome_comments": {"label": "genome_comments", "sql": "g.comments", "source": "Genome", "description": "Genome comments."},
     "download_date": {"label": "download_date", "sql": "g.dl_date", "source": "Genome", "description": "Download date."},
@@ -283,6 +284,8 @@ METADATA_ALIASES = {
     "isoform_cleaned": "isoforms_cleaned",
     "proteome_profile": "proteome_profile",
     "profile": "proteome_profile",
+    "orthofinder_target_library": "orthofinder_target_library",
+    "of_target_library": "orthofinder_target_library",
     "default_proteome_profile": "default_proteome_profile",
     "default_profile": "default_proteome_profile",
 }
@@ -827,6 +830,36 @@ def _fetch_busco_runs(
             ),
             reverse=True,
         )
+    return result
+
+
+def _fetch_orthofinder_target_libraries(
+    manager: DBManager,
+    run_ids: Sequence[int],
+) -> Dict[int, str]:
+    """Return target-library provenance for OrthoFinder-derived BUSCO runs."""
+
+    result: Dict[int, str] = {}
+    unique_run_ids = sorted({int(run_id) for run_id in run_ids if run_id is not None})
+    for chunk in _chunked(unique_run_ids, 900):
+        placeholders = ",".join("?" for _ in chunk)
+        manager.cursor.execute(
+            f"""
+            SELECT run_id, pipeline_params_effective_json
+            FROM BUSCO_Runs
+            WHERE pipeline = 'orthofinder'
+              AND run_id IN ({placeholders})
+            """,
+            tuple(chunk),
+        )
+        for run_id, params_json in manager.cursor.fetchall() or []:
+            try:
+                params = json.loads(params_json) if params_json else {}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                params = {}
+            target_library = str(params.get("derived_library_name") or "").strip()
+            if target_library:
+                result[int(run_id)] = target_library
     return result
 
 
@@ -1966,6 +1999,26 @@ def _handle_list_assemblies(args: argparse.Namespace) -> int:
         proteome_profile_meta_index: Optional[int] = None
         if meta_fields and "proteome_profile" in meta_fields:
             proteome_profile_meta_index = 1 + (2 if args.busco else 0) + 1 + len(rank_labels) + meta_fields.index("proteome_profile")
+        orthofinder_target_meta_index: Optional[int] = None
+        orthofinder_target_libraries: Dict[int, str] = {}
+        if args.busco and meta_fields and "orthofinder_target_library" in meta_fields:
+            orthofinder_target_meta_index = 1 + 2 + 1 + len(rank_labels) + meta_fields.index("orthofinder_target_library")
+            displayed_orthofinder_run_ids: List[int] = []
+            for acc in selected:
+                run_items = busco_run_map.get(acc) or []
+                if not getattr(args, "all_runs", False):
+                    run_items = run_items[:1]
+                displayed_orthofinder_run_ids.extend(
+                    int(run_item["run_id"])
+                    for run_item in run_items
+                    if run_item.get("run_id") is not None
+                    and str(run_item.get("pipeline_raw") or "").strip().lower() == "orthofinder"
+                )
+            if displayed_orthofinder_run_ids:
+                orthofinder_target_libraries = _fetch_orthofinder_target_libraries(
+                    manager,
+                    displayed_orthofinder_run_ids,
+                )
 
         row_map: Dict[str, List[List[str]]] = {}
         for acc in selected:
@@ -1996,6 +2049,13 @@ def _handle_list_assemblies(args: argparse.Namespace) -> int:
                                 str(details.get("display") or "")
                                 if details
                                 else run_profile or ("unset" if input_mode_norm == "protein" else "")
+                            )
+                        if orthofinder_target_meta_index is not None:
+                            run_id = run_item.get("run_id")
+                            row[orthofinder_target_meta_index] = (
+                                orthofinder_target_libraries.get(int(run_id), "")
+                                if run_id is not None
+                                else ""
                             )
                         row[1] = _busco_mode_code(
                             run_item.get("pipeline_raw"),
@@ -2077,6 +2137,13 @@ def _handle_list_assemblies(args: argparse.Namespace) -> int:
                             str(details.get("display") or "")
                             if details
                             else run_profile or ("unset" if input_mode_norm == "protein" else "")
+                        )
+                    if orthofinder_target_meta_index is not None:
+                        run_id = primary_run.get("run_id")
+                        row[orthofinder_target_meta_index] = (
+                            orthofinder_target_libraries.get(int(run_id), "")
+                            if run_id is not None
+                            else ""
                         )
                     row[1] = _busco_mode_code(
                         primary_run.get("pipeline_raw"),

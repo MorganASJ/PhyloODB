@@ -401,6 +401,11 @@ phyloODB project.db list proteome-profiles --accessions GCA_000516915.1
 phyloODB project.db list assemblies --busco --all-runs --meta proteome_profile,default_proteome_profile
 ```
 
+Use `--meta orthofinder_target_library` (alias `of_target_library`) to show the
+library constructed using each OrthoFinder-derived BUSCO row. The value is blank
+for non-OrthoFinder rows, and its provenance is only loaded when this metadata
+field is requested.
+
 ### `prepare-proteome` defaults
 
 `prepare-proteome` creates a derived proteome profile without mutating the raw proteome.
