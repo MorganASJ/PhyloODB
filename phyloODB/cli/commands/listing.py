@@ -981,11 +981,12 @@ def _handle_list_busco_runs(args: argparse.Namespace) -> int:
     try:
         try:
             ordinary_filters, target_library_filters = _split_busco_run_metadata_filters(
-                getattr(args, "filters", None) or []
+                getattr(args, "filter", None) or getattr(args, "filters", None) or []
             )
         except ValueError as exc:
             return _print_error(str(exc))
         selector_args = argparse.Namespace(**vars(args))
+        selector_args.filter = ordinary_filters or None
         selector_args.filters = ordinary_filters or None
         busco_library = _resolve_library_selector(
             manager,
