@@ -252,6 +252,7 @@ Notes:
 - `set busco-primary` creates persistent manual BUSCO primary overrides
 - `set busco-primary --refresh` recomputes automatic BUSCO primaries for all matched accession/library pairs with completed BUSCO runs
 - `set busco-primary --dry` previews current versus proposed primary run changes
+- `set busco-primary --orthofinder-target-library NAME` selects the OrthoFinder-derived runs created while constructing that target library and implies `--busco-pipeline orthofinder`
 - without `--refresh`, `set busco-primary` requires either `--run-id`/`--run-ids` or at least one run-disambiguating selector such as `--format` or `--busco-pipeline`
 - `--refresh` preserves existing manual overrides (`manual_override`) and rewrites only non-manual primary assignments
 - `--refresh` recomputes all three primary purposes: `default`, `export_protein`, and `export_nucleotide`

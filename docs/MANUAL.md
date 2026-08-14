@@ -1055,6 +1055,11 @@ phyloODB my_project.db set busco-primary \
 phyloODB my_project.db set busco-primary \
   --accessions @TARDIGRADES \
   --run-ids @AUGUSTUS_RUNS
+
+phyloODB my_project.db set busco-primary \
+  --accessions @METAZOA_CORE \
+  --orthofinder-target-library metazoa_core \
+  --dry
 ```
 
 If you want to recompute automatic primaries rather than pin a manual override, use `set busco-primary --refresh`.
@@ -1078,6 +1083,7 @@ Refresh mode:
 Important rules:
 
 - if you do not supply `--refresh`, then without `--run-id` or `--run-ids` you must provide at least one run-disambiguating selector such as `--format` or `--busco-pipeline`;
+- `--orthofinder-target-library NAME` is also a run-disambiguating selector and implies `--busco-pipeline orthofinder`; use it when the same references have cleaned runs from several derived-library or hidden-paralog analyses;
 - the selected run updates every primary purpose that the run can actually support;
 - this is based on the chosen run’s capabilities, not on the value of `--format` alone;
 - for example, a protein-input `miniprot` run will usually update `default` and `export_protein`, while a genome-input `metaeuk` or `augustus` run will usually update all three purposes.

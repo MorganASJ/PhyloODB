@@ -310,6 +310,8 @@ def _handle_refresh_busco_primary(
         conflicting.append("--format")
     if getattr(args, "prefer_format", None) or getattr(args, "prefer_busco_input_mode", None):
         conflicting.append("--prefer-format")
+    if getattr(args, "orthofinder_target_library", None):
+        conflicting.append("--orthofinder-target-library")
     if conflicting:
         joined = ", ".join(conflicting)
         return _print_error(f"--refresh cannot be combined with manual run-pinning options: {joined}.")
@@ -403,10 +405,36 @@ def _handle_refresh_busco_primary(
     return 0
 
 
+def _matches_orthofinder_target_library(
+    pipeline: Any,
+    pipeline_params_json: Any,
+    target_library: str,
+) -> bool:
+    """Return whether a BUSCO run came from the requested derived-library build."""
+
+    if str(pipeline or "").strip().lower() != "orthofinder":
+        return False
+    try:
+        pipeline_params = json.loads(pipeline_params_json) if pipeline_params_json else {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        pipeline_params = {}
+    return str(pipeline_params.get("derived_library_name") or "").strip() == target_library
+
+
 def _handle_set_busco_primary(args: argparse.Namespace) -> int:
     manager = _connect_manager(args.database, read_only=bool(getattr(args, "dry", False)))
     try:
         required_pipeline = str(getattr(args, "busco_pipeline", "") or "").strip().lower() or None
+        orthofinder_target_library = str(
+            getattr(args, "orthofinder_target_library", "") or ""
+        ).strip() or None
+        if orthofinder_target_library:
+            if required_pipeline not in {None, "orthofinder"}:
+                return _print_error(
+                    "--orthofinder-target-library can only be combined with "
+                    "--busco-pipeline orthofinder."
+                )
+            required_pipeline = "orthofinder"
         preferred_pipeline = str(getattr(args, "prefer_busco_pipeline", "") or "").strip().lower() or None
         required_mode = str(getattr(args, "format", None) or getattr(args, "busco_input_mode", None) or "").strip().lower() or None
         preferred_mode = str(getattr(args, "prefer_format", None) or getattr(args, "prefer_busco_input_mode", None) or "").strip().lower() or None
@@ -431,7 +459,10 @@ def _handle_set_busco_primary(args: argparse.Namespace) -> int:
         if bool(getattr(args, "refresh", False)):
             return _handle_refresh_busco_primary(manager, args, busco_library=busco_library)
         if not explicit_run_ids and required_pipeline is None and required_mode is None:
-            return _print_error("Without --run-id/--run-ids, provide at least --format or --busco-pipeline.")
+            return _print_error(
+                "Without --run-id/--run-ids, provide at least --format, "
+                "--busco-pipeline, or --orthofinder-target-library."
+            )
         selectors = _selector_request_from_args(
             args,
             profile="assembly_with_exclusions",
@@ -448,7 +479,8 @@ def _handle_set_busco_primary(args: argparse.Namespace) -> int:
 
         rows: list[tuple] = []
         query = """
-            SELECT r.run_id, r.accession, r.library_id, l.library_name
+            SELECT r.run_id, r.accession, r.library_id, l.library_name,
+                   r.pipeline, r.pipeline_params_effective_json
             FROM BUSCO_Runs r
             JOIN Libraries l ON l.library_id = r.library_id
             WHERE COALESCE(r.status, 'completed') = 'completed'
@@ -470,9 +502,19 @@ def _handle_set_busco_primary(args: argparse.Namespace) -> int:
         query += " ORDER BY r.accession, r.library_id, r.run_id"
         manager.cursor.execute(query, tuple(params))
         rows = manager.cursor.fetchall() or []
+        if orthofinder_target_library:
+            rows = [
+                row
+                for row in rows
+                if _matches_orthofinder_target_library(
+                    row[4], row[5], orthofinder_target_library
+                )
+            ]
         if not rows:
             print("No BUSCO runs matched the requested selectors.")
             return 0
+
+        candidate_run_ids = [int(row[0]) for row in rows]
 
         grouped: Dict[tuple[str, int], Dict[str, Any]] = {}
         for run_id, accession, library_id, library_name in rows:
@@ -486,7 +528,7 @@ def _handle_set_busco_primary(args: argparse.Namespace) -> int:
                 accession,
                 library_id,
                 purpose="default",
-                run_ids=explicit_run_ids or None,
+                run_ids=candidate_run_ids,
                 pipeline=required_pipeline,
                 input_mode=required_mode,
                 preferred_pipeline=preferred_pipeline,
@@ -1153,6 +1195,13 @@ def register_admin_parsers(
         "--refresh",
         action="store_true",
         help="Recompute automatic BUSCO primary assignments for matched accessions/libraries instead of setting a manual override.",
+    )
+    set_busco_primary_selectors.add_argument(
+        "--orthofinder-target-library",
+        help=(
+            "Select OrthoFinder-derived BUSCO runs created for this target library. "
+            "This implies --busco-pipeline orthofinder."
+        ),
     )
     set_busco_primary_output.add_argument("--dry", action="store_true", help="Preview primary changes without writing.")
     _add_basic_list_output_options(set_busco_primary_output)
