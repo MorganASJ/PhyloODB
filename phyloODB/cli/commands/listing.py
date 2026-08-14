@@ -287,7 +287,9 @@ METADATA_ALIASES = {
     "proteome_profile": "proteome_profile",
     "profile": "proteome_profile",
     "orthofinder_target_library": "orthofinder_target_library",
+    "orthofinder-target-library": "orthofinder_target_library",
     "of_target_library": "orthofinder_target_library",
+    "of-target-library": "orthofinder_target_library",
     "default_proteome_profile": "default_proteome_profile",
     "default_profile": "default_proteome_profile",
 }
@@ -972,6 +974,29 @@ def _matches_busco_run_metadata_filters(
         any(all(_evaluate_filter_condition(value, condition) for condition in group) for group in groups)
         for groups in filters
     )
+
+
+def _filter_busco_run_map_by_target_library(
+    busco_run_map: Dict[str, List[Dict[str, Any]]],
+    target_libraries: Dict[int, str],
+    filters: Sequence[List[List[Dict[str, Any]]]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Filter per-accession BUSCO candidates by OrthoFinder target provenance."""
+
+    filtered: Dict[str, List[Dict[str, Any]]] = {}
+    for accession, run_items in busco_run_map.items():
+        matching = [
+            run_item
+            for run_item in run_items
+            if run_item.get("run_id") is not None
+            and _matches_busco_run_metadata_filters(
+                target_libraries.get(int(run_item["run_id"]), ""),
+                filters,
+            )
+        ]
+        if matching:
+            filtered[accession] = matching
+    return filtered
 
 
 def _handle_list_busco_runs(args: argparse.Namespace) -> int:
@@ -1846,6 +1871,20 @@ def _handle_list_assemblies(args: argparse.Namespace) -> int:
 
     manager = _connect_manager(args.database, read_only=not _list_requires_write(args))
     try:
+        try:
+            ordinary_filters, target_library_filters = _split_busco_run_metadata_filters(
+                getattr(args, "filter", None) or getattr(args, "filters", None) or []
+            )
+        except ValueError as exc:
+            return _print_error(str(exc))
+        if target_library_filters and not getattr(args, "busco", False):
+            return _print_error(
+                "orthofinder_target_library filtering requires 'list results' or "
+                "'list assemblies --busco'."
+            )
+        selector_args = argparse.Namespace(**vars(args))
+        selector_args.filter = ordinary_filters or None
+        selector_args.filters = ordinary_filters or None
         if getattr(args, "store_variable", None) and getattr(args, "append_to_variable", None):
             return _print_error("--store and --append-to cannot be used together.")
         _apply_busco_context_from_args(manager, args)
@@ -1891,7 +1930,7 @@ def _handle_list_assemblies(args: argparse.Namespace) -> int:
             return _print_error("--group-by-rank requires --rank or --ranks.")
 
         selectors = _selector_request_from_args(
-            args,
+            selector_args,
             profile="assembly_with_exclusions",
             busco_library_id=busco_library,
             manager=manager,
@@ -1914,9 +1953,9 @@ def _handle_list_assemblies(args: argparse.Namespace) -> int:
             return _print_error(str(exc))
 
         try:
-            if args.store_variable:
+            if args.store_variable and not target_library_filters:
                 _store_accession_variable(manager, args.store_variable, selected)
-            elif getattr(args, "append_to_variable", None):
+            elif getattr(args, "append_to_variable", None) and not target_library_filters:
                 _store_accession_variable(manager, args.append_to_variable, selected, append=True)
         except ValueError as exc:
             return _print_error(str(exc))
@@ -1976,6 +2015,27 @@ def _handle_list_assemblies(args: argparse.Namespace) -> int:
             if args.busco
             else {}
         )
+        if args.busco and target_library_filters:
+            candidate_run_ids = [
+                int(run_item["run_id"])
+                for run_items in busco_run_map.values()
+                for run_item in run_items
+                if run_item.get("run_id") is not None
+            ]
+            target_libraries = _fetch_orthofinder_target_libraries(manager, candidate_run_ids)
+            busco_run_map = _filter_busco_run_map_by_target_library(
+                busco_run_map,
+                target_libraries,
+                target_library_filters,
+            )
+            selected = [accession for accession in selected if accession in busco_run_map]
+            if args.store_variable:
+                _store_accession_variable(manager, args.store_variable, selected)
+            elif getattr(args, "append_to_variable", None):
+                _store_accession_variable(manager, args.append_to_variable, selected, append=True)
+            if not selected:
+                print("No assemblies matched selectors.", file=sys.stderr)
+                return 0
         protein_flag_map = (
             _fetch_genome_protein_flags(manager, selected)
             if args.busco

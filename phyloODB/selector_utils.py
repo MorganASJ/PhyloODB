@@ -488,7 +488,7 @@ BUSCO_FIELD_ALIASES = {
 }
 
 FILTER_OP_PATTERN = re.compile(
-    r"^\s*([A-Za-z0-9_.]+)\s*(>=|<=|!=|==|=|>|<|contains|notcontains|not\\s+contains|isnull|notnull|~|!~)\s*(.*)\s*$",
+    r"^\s*([A-Za-z0-9_.-]+)\s*(>=|<=|!=|==|=|>|<|contains|notcontains|not\\s+contains|isnull|notnull|~|!~)\s*(.*)\s*$",
     re.IGNORECASE,
 )
 
@@ -563,7 +563,7 @@ def _parse_filter_condition(token: str) -> Dict[str, Any]:
     match = FILTER_OP_PATTERN.match(token or "")
     if not match:
         raise ValueError(f"Invalid filter expression '{token}'.")
-    raw_field = match.group(1).strip()
+    raw_field = match.group(1).strip().replace("-", "_")
     op_raw = match.group(2).strip().lower()
     value_raw = match.group(3).strip()
 

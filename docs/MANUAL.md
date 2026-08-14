@@ -584,6 +584,9 @@ rows. Its shorter alias is `of_target_library`.
 The same field is included by `list busco-runs` and can be filtered before
 emitting or storing run ids, for example
 `--filter "orthofinder_target_library=metazoa_core" --store-results CORE_O_RUNS`.
+It can also be filtered directly in `list results` or `list assemblies --busco`.
+The hyphenated spellings `orthofinder-target-library` and `of-target-library`
+are accepted aliases.
 
 For practical purposes:
 

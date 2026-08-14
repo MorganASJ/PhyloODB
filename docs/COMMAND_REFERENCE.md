@@ -420,6 +420,18 @@ phyloODB project.db list busco-runs \
   --store-results METAZOA_CORE_ORTHOFINDER_RUNS
 ```
 
+`list results` and `list assemblies --busco` also accept this run-level filter.
+Both underscore and hyphen spellings are accepted:
+
+```bash
+phyloODB project.db list results \
+  --accessions @METAZOA_CORE \
+  --library-name metazoa_core \
+  --all-runs \
+  --meta proteome_profile,orthofinder_target_library \
+  --filter "orthofinder-target-library=metazoa_core"
+```
+
 ### `prepare-proteome` defaults
 
 `prepare-proteome` creates a derived proteome profile without mutating the raw proteome.
