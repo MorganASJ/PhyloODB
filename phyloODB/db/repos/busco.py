@@ -2151,7 +2151,10 @@ class BuscoRepository(BaseRepository):
             # that its source BUSCO evidence exists.
             return row_pipeline_norm in {"miniprot", "metaeuk", "augustus"}
         if requested_norm == "proteome":
-            return row_mode_norm == "protein"
+            # Public-facing "Proteome" denotes an ordinary BUSCO run on a
+            # protein input.  OrthoFinder-derived runs also use protein input,
+            # but are presented and selected as their own pipeline.
+            return row_mode_norm == "protein" and row_pipeline_norm != "orthofinder"
         return row_pipeline_norm == requested_norm
 
     @staticmethod

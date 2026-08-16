@@ -517,7 +517,7 @@ def _handle_set_busco_primary(args: argparse.Namespace) -> int:
         candidate_run_ids = [int(row[0]) for row in rows]
 
         grouped: Dict[tuple[str, int], Dict[str, Any]] = {}
-        for run_id, accession, library_id, library_name in rows:
+        for _run_id, accession, library_id, library_name, _pipeline, _pipeline_params in rows:
             key = (str(accession), int(library_id))
             grouped.setdefault(key, {"library_name": str(library_name or "")})
 
