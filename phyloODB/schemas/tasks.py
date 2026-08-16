@@ -420,8 +420,8 @@ class ExportLibraryPayload(TaskPayload):
     )
     min_completeness: Optional[float] = Field(default=None, ge=0, le=1, description="Minimum BUSCO completeness (0-1) for selector filtering.")
     min_single_copy_complete: Optional[float] = Field(default=None, ge=0, le=1, description="Minimum BUSCO single-copy completeness (0-1) for selector filtering.")
-    min_occupancy: float = Field(default=0.5, ge=0, le=1, description="Minimum fraction of selected accessions that must be present in a family to retain the family.")
-    min_taxa_occupancy: float = Field(default=0.3, ge=0, le=1, description="Minimum fraction of families an accession must appear in to be retained.")
+    min_occupancy: float = Field(default=0.0, ge=0, le=1, description="Minimum fraction of selected accessions that must be present in a family to retain the family; 0 disables family-occupancy filtering.")
+    min_taxa_occupancy: float = Field(default=0.0, ge=0, le=1, description="Minimum fraction of families an accession must appear in to be retained; 0 disables taxon-occupancy filtering.")
     min_completeness: Optional[float] = Field(default=None, ge=0, le=1, description="Minimum BUSCO completeness (0-1) for selector filtering.")
     min_single_copy_complete: Optional[float] = Field(default=None, ge=0, le=1, description="Minimum BUSCO single-copy completeness (0-1) for selector filtering.")
 

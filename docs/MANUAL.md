@@ -1659,6 +1659,19 @@ phyloODB my_project.db queue add-library \
 
 The first command builds a derived library from reusable upstream BUSCO and OrthoFinder evidence where possible. The second rebuilds the derived library, recomputes replacement gene trees, and writes annotated copies for inspection, while still reusing BUSCO and OrthoFinder runs unless their own rerun flags are also supplied.
 
+#### What reciprocal validation does
+
+BUSCO and OrthoFinder describe related but non-identical concepts. A BUSCO lineage is a predefined collection of conserved, putatively single-copy families, whereas OrthoFinder infers orthogroups de novo from the taxa and proteomes supplied to a particular run. An OrthoFinder orthogroup can therefore contain missing taxa, terminal lineage expansions, or deeper duplications even when its sequences include recognizable members of one BUSCO family.
+
+`add-library` reconciles those definitions in four stages:
+
+1. Complete BUSCO sequences from the selected parent-lineage runs are matched to sequences in the complete set of assigned OrthoFinder orthogroups. The comparison is not restricted to OrthoFinder's predefined single-copy subset, because missing taxa alone can prevent an otherwise suitable orthogroup from appearing there.
+2. Complex mappings are excluded. A BUSCO family split across several orthogroups, or an orthogroup associated with several BUSCO families, cannot be treated as an unambiguous reciprocal family definition.
+3. Exact BUSCO-family/orthogroup pairs are subjected to the minimum-species occupancy threshold and, unless `--skip-paralog-analysis` is used, gene-tree analysis. Repeated copies from one accession are in-paralogs when they are monophyletic in the unrooted gene tree and out-paralogs when they are not.
+4. The derived Core-OG library retains occupancy-passing exact pairs with no detected out-paralogy. Families containing no paralogs or only terminal-taxon-specific in-paralogs are retained; families containing out-paralogs are rejected.
+
+This family-level Core-OG decision is distinct from [reference BUSCO cleaning](#reference-busco-cleaning). The derived library normally permits a family containing only in-paralogs, because those copies preserve the same relationship to sequences in other taxa. A strict cleaned reference profile may nevertheless reclassify the affected accession's BUSCO call from single-copy to duplicated so that the reported BUSCO status reflects the observed copy structure.
+
 Two core-set strategies are now available:
 
 - default paralog-aware mode: accept exact 1:1 BUSCO/orthogroup matches only after the selected gene-tree workflow has been used to classify paralogs;
@@ -1703,14 +1716,147 @@ In practice:
 
 When `--force` is used without `--rerun-orthofinder`, an existing OrthoFinder run already linked to that derived library is preserved and may be reused. When `--rerun-orthofinder` is supplied, that library-linked OrthoFinder result is discarded as part of the rebuild expectation.
 
-Each derived library writes `library_build_metadata.json` in its library root. This records the effective core-set strategy, tree source, accepted-family rule, and the main analysis output paths so the library definition is explicit later.
+#### Derived-library output layout
 
-When replacement IQ-TREE gene trees are part of that workflow, the library analysis output also records the main tree products needed for inspection:
+Every derived library has a directory under the active `libraries` storage root. A paralog-aware IQ-TREE build with tree annotation and reference cleaning has approximately this layout:
 
-- replacement alignments in the library analysis area;
-- per-orthogroup IQ-TREE result directories;
-- `orthogroup_tree_manifest.tsv`, which links each orthogroup to the alignment and resolved tree path used downstream;
-- annotated orthogroup trees under `annotated-og-trees/` when `--annotate-og-trees` was requested.
+```text
+<libraries-root>/<library-name>/
+├── cleaned_busco_families.json
+├── cleaned_busco_families_<timestamp>.json
+├── library_build_metadata.json
+├── orthogroup_tree_manifest.tsv
+├── annotated-og-trees/
+│   ├── OG0000001.nex
+│   └── ...
+├── cleaned_reference_proteomes/
+│   ├── GCA_....tsv
+│   └── ...
+└── core_set_analysis/
+    ├── busco_fastas/
+    │   ├── <BUSCO-family>.fasta
+    │   └── ...
+    ├── <library-name>_busco_to_orthogroup_map.tsv
+    ├── <library-name>_busco_to_orthogroup_exact_map.tsv
+    ├── <library-name>_busco_to_orthogroup_1to1.tsv
+    ├── <library-name>_busco_to_orthogroup_1to1_occupancy.tsv
+    ├── <library-name>_busco_to_orthogroup_og_to_busco_families.tsv
+    ├── <library-name>_busco_to_orthogroup_busco_family_to_ogs.tsv
+    ├── <library-name>_busco_to_orthogroup_map_with_paralog_class.tsv
+    ├── <library-name>_busco_to_orthogroup_species_paralog_status.tsv
+    ├── <library-name>_busco_to_orthogroup_unmapped_buscos.tsv
+    ├── <library-name>_good_busco_families.txt
+    └── paralogs/
+        ├── og_paralog_summary.tsv
+        ├── OG0000001_inparalogs.txt
+        ├── OG0000001_outparalogs.txt
+        └── ...
+```
+
+`annotated-og-trees/` exists only when `--annotate-og-trees` is effective. `cleaned_reference_proteomes/` exists only when `--clean-refs` or `--clean-refs-strict` creates cleaned reference runs. Builds using `--skip-paralog-analysis` do not produce the tree-based paralog products.
+
+The large OrthoFinder, MAFFT, and IQ-TREE work products remain under the active `orthofinder` storage root rather than being copied into each library directory. For an IQ-TREE build, the associated OrthoFinder result commonly contains:
+
+```text
+<orthofinder-result>/
+├── Orthogroup_Sequences/
+├── MAFFT_Alignments/
+├── IQ-TREE_Orthogroup_trees/
+├── IQTREE_Metadata/
+└── Resolved_Gene_Trees/
+```
+
+`Orthogroup_Sequences/` holds the raw OrthoFinder family FASTAs. `MAFFT_Alignments/` holds the replacement alignments, and `IQ-TREE_Orthogroup_trees/` holds the replacement trees used for reciprocal validation. OrthoFinder's original `Resolved_Gene_Trees/` is left unchanged. The library's manifest and metadata file record the exact paths, so operators do not need to infer which OrthoFinder run was used.
+
+##### Library definition and provenance files
+
+`cleaned_busco_families.json` is the canonical accepted-family list for the derived library. A timestamped copy records the list written by that build. The historical filename uses “cleaned” to mean that complex mappings, occupancy failures, and out-paralogous families have been removed; it is separate from cleaned reference BUSCO runs.
+
+`library_build_metadata.json` is the first file to inspect when auditing a build. It records the parent library, core-set strategy, effective gene-tree source, accepted-family rule, minimum-species threshold, reference-cleaning mode, accepted-family count, annotation state, rerun controls, and principal output paths. For example:
+
+```bash
+jq . <libraries-root>/metazoa_core/library_build_metadata.json
+```
+
+Important fields include:
+
+- `gene_tree_source`: `iqtree`, `fasttree`, or `none`;
+- `min_species_in_trees`: the occupancy threshold applied to exact mappings;
+- `clean_refs_mode_effective`: `strict_any`, `out_only`, or `null`;
+- `accepted_family_count`: the number of retained Core-OG families;
+- `annotate_og_trees_effective`: whether annotated NEXUS trees were produced;
+- `output_paths`: the recorded mapping, manifest, and effective tree locations.
+
+`orthogroup_tree_manifest.tsv` is the central index connecting a BUSCO family to its orthogroup and tree evidence. It contains:
+
+- `family_id`: the parent-library BUSCO family;
+- `orthogroup`: the matched OrthoFinder orthogroup;
+- `raw_fasta`: the original orthogroup FASTA;
+- `alignment_path`: the replacement MAFFT alignment when IQ-TREE mode was used;
+- `tree_dir`: the per-orthogroup IQ-TREE working directory;
+- `tree_path`: the canonical tree used for paralog analysis and annotation;
+- `fasttree_tree_path`: the source tree when OrthoFinder/FastTree trees were reused;
+- `paralog_in_file` and `paralog_out_file`: the supporting paralog-set files;
+- `source_run_ids`: the parent BUSCO runs used to annotate BUSCO sequences.
+
+Use the manifest to move from a BUSCO family to all of its evidence:
+
+```bash
+column -ts $'\t' <libraries-root>/metazoa_core/orthogroup_tree_manifest.tsv | less -S
+```
+
+##### Mapping and occupancy tables
+
+The files in `core_set_analysis/` describe successive stages of selection:
+
+- `*_map.tsv` is the complete sequence-level mapping. Its columns are `BUSCO_file`, `BUSCO_id`, `BUSCO_family`, `Orthogroup`, `OG_seq_id`, and `Sequence_length`.
+- `*_og_to_busco_families.tsv` is the compact orthogroup-to-BUSCO mapping and exposes orthogroups associated with several BUSCO families.
+- `*_busco_family_to_ogs.tsv` is the reverse mapping and exposes BUSCO families split across several orthogroups.
+- `*_1to1.tsv` reports families associated with one orthogroup. `Exact_1_to_1=YES` indicates reciprocal agreement and equality of the BUSCO-matched sequence multiset. `Relaxed_only=YES` indicates a unique mapping that did not satisfy the exact criterion.
+- `*_exact_map.tsv` is the sequence-level subset of `*_map.tsv` belonging to exact pairs.
+- `*_1to1_occupancy.tsv` reports `BUSCO_family`, `Orthogroup`, `Species_count`, and the resulting `accepted` or `rejected` status under `min_species_in_trees`.
+- `*_unmapped_buscos.tsv` reports total and per-accession BUSCO records that could not be connected to an assigned orthogroup. BUSCOs present only among OrthoFinder unassigned genes count as unmapped because reciprocal mapping scans assigned `Orthogroup_Sequences`.
+- `*_good_busco_families.txt` is a plain-text final family list corresponding to the accepted JSON library definition.
+
+##### Paralog evidence and accession-level reports
+
+`paralogs/og_paralog_summary.tsv` reports `In_Paralog_Sets`, `Out_Paralog_Sets`, and one of four classifications for each examined orthogroup: `No Paralogs`, `Only In-Paralogs`, `Only Out-Paralogs`, or `Both In- and Out-Paralogs`. The sibling `OG..._inparalogs.txt` and `OG..._outparalogs.txt` files list the actual tree-tip sets behind those counts.
+
+`*_species_paralog_status.tsv` converts that evidence into accession-specific calls. Each row gives a BUSCO family, orthogroup, accession, `Has_In_Paralogs`, and `Has_Out_Paralogs`. This is the main table for determining why the same family may be reclassified in one cleaned reference profile but not another.
+
+`*_map_with_paralog_class.tsv` augments the sequence-level mapping with `OG_Paralog_Classification` and `Clean_1to1_NoParalogs`. Despite the historical column name, `Clean_1to1_NoParalogs=YES` includes occupancy-passing exact pairs with no out-paralogs: both `No Paralogs` and `Only In-Paralogs` qualify.
+
+When reference cleaning is enabled, `cleaned_reference_proteomes/<accession>.tsv` is the accession-centred audit trail. It gives every BUSCO family's orthogroup and mapping category, original and rewritten status, gene name, paralog class, supporting paralog file, and gene-tree path. This is the most direct report for explaining an individual `single-copy` to `duplicated` change.
+
+##### Annotated Core-OG trees
+
+With `--annotate-og-trees`, inspection copies are written as NEXUS files to:
+
+```text
+<libraries-root>/<library-name>/annotated-og-trees/<orthogroup>.nex
+```
+
+For example, `metazoa_core` trees are found under `libraries/metazoa_core/annotated-og-trees/` when the default libraries root is in use. The NEXUS trees can be opened in a viewer that interprets `[&!color=...]` branch annotations, such as FigTree.
+
+Tip labels have the general structure:
+
+```text
+<sequence>_<taxon>_<phylum>_[<BUSCO-status>][*HP]
+```
+
+BUSCO status markers are `BUSCO_SC` (single-copy), `BUSCO_DUP` (duplicated), `BUSCO_FRAG` (fragmented), and `BUSCO_MISSING` (missing). Missing records normally have no sequence tip. `NON_BUSCO` marks a sequence present in the orthogroup but not identified as the BUSCO sequence. `[*HP]` marks a sequence independently classified as a hidden paralog when such filtering evidence is available.
+
+Terminal branch colours use this key:
+
+| Colour | Hex | Meaning |
+|---|---|---|
+| Green | `#2e7d32` | BUSCO sequence without a stronger paralog annotation |
+| Blue | `#1565c0` | In-paralog |
+| Red | `#c62828` | Out-paralog |
+| Red | `#c62828` | Hidden paralog, also labelled `[*HP]` |
+| Grey | `#616161` | Orthogroup sequence not identified as a BUSCO sequence |
+
+The annotation precedence is hidden paralog, out-paralog, in-paralog, non-BUSCO, then ordinary BUSCO. An annotated tree can exist for an occupancy-passing candidate that was later excluded for out-paralogy, so the presence of a `.nex` file does not prove final library membership. Confirm membership in `cleaned_busco_families.json` and use the manifest and paralog tables to interpret the tree.
 
 #### Reference BUSCO cleaning
 
@@ -1721,11 +1867,43 @@ When replacement IQ-TREE gene trees are part of that workflow, the library analy
 - `--set-cleaned-primary`: make the derived `pipeline=orthofinder` BUSCO run the default primary run for those references;
 - `--no-set-cleaned-primary`: create the cleaned runs without changing BUSCO primaries.
 
-**This produces a new BUSCO-run record for the reference assemblies under the OrthoFinder (O) pipeline.**
+Neither cleaning mode is activated when both `--clean-refs` and `--clean-refs-strict` are omitted. When a cleaning mode is explicitly requested, `--set-cleaned-primary` is the default; use `--no-set-cleaned-primary` when the derived profiles should be created for inspection without changing the current primary selections.
+
+Cleaning produces a new BUSCO-run record for each reference assembly under the OrthoFinder (`O`) pipeline. It does not rerun BUSCO. PhyloODB clones the selected parent-library protein BUSCO run, its family rows, sequence identifiers, locations, scores, and proteome-profile identity, then rewrites only qualifying family statuses. The derived run records its source run, OrthoFinder run, target derived library, and cleaning mode in `pipeline_params_effective_json`.
+
+A family moves from `single-copy` to `duplicated` only when all of the following are true:
+
+1. its source BUSCO status is single-copy;
+2. the family has an exact reciprocal BUSCO-family/orthogroup mapping;
+3. the exact pair passes the minimum-species occupancy threshold;
+4. the gene tree contains more than one sequence from that accession; and
+5. that accession is classified as having an out-paralog under `--clean-refs`, or either an in-paralog or out-paralog under `--clean-refs-strict`.
+
+Already duplicated, fragmented, missing, unmapped, and non-exactly mapped families are not rewritten. For each conversion, the summary count decreases `Single copy BUSCOs` by one and increases `Multi copy BUSCOs` by one.
 
 The key design point is that these cleaned BUSCO runs are accession-specific. A family is not reclassified merely because an orthogroup is globally labelled as containing paralogs. The reclassification only happens when the tree evidence shows that the accession itself participates in the relevant in-paralog or out-paralog tuple.
 
 When `--skip-paralog-analysis` is used, these cleaned reference BUSCO rewrites are not created because there is no accession-specific paralog evidence to apply.
+
+The target-library provenance matters when the same accession participates in several Core-OG builds. For example, one accession can legitimately have separate OrthoFinder profiles produced by `metazoa_core` and `metazoa_full`, because adding taxa can change both orthogroup definitions and tree-based paralog classifications. Inspect and filter these profiles with `orthofinder_target_library`:
+
+```bash
+phyloODB my_project.db list results \
+  --accessions @METAZOA_FULL \
+  --library-name metazoa_full \
+  --all-runs \
+  --meta proteome_profile,orthofinder_target_library \
+  --filter "orthofinder_target_library=metazoa_full"
+```
+
+To make the matching profiles primary after the build, use the dedicated selector. Preview first with `--dry`, then repeat without it:
+
+```bash
+phyloODB my_project.db set busco-primary \
+  --accessions @METAZOA_FULL \
+  --orthofinder-target-library metazoa_full \
+  --dry
+```
 
 #### Internal alignment and tree tasks
 
@@ -1733,12 +1911,12 @@ The lower-level `mafft-run` and `iqtree-run` tasks expose the two tree-building 
 
 ```bash
 phyloODB my_project.db queue mafft-run \
-  --input-fasta libraries/metazoa_core/analysis/orthogroups/OG0001234.faa \
-  --out-dir libraries/metazoa_core/analysis/alignments
+  --input-fasta orthofinder/Results_MetazoaCore/Orthogroup_Sequences/OG0001234.fa \
+  --out-dir orthofinder/Results_MetazoaCore/MAFFT_Alignments
 
 phyloODB my_project.db queue iqtree-run \
-  --input-alignment libraries/metazoa_core/analysis/alignments/OG0001234.aln.fasta \
-  --out-dir libraries/metazoa_core/IQ-TREE_Orthogroup_trees \
+  --input-alignment orthofinder/Results_MetazoaCore/MAFFT_Alignments/OG0001234.aln.fasta \
+  --out-dir orthofinder/Results_MetazoaCore/IQ-TREE_Orthogroup_trees \
   --prefix OG0001234
 ```
 
@@ -1758,12 +1936,12 @@ For example, a custom library called `metazoa_core` stored under the default lib
 
 ```bash
 phyloODB my_project.db queue annotate-orthogroup-tree \
-  --input-tree libraries/metazoa_core/IQ-TREE_Orthogroup_trees/OG0001234.treefile \
+  --input-tree orthofinder/Results_MetazoaCore/IQ-TREE_Orthogroup_trees/OG0001234.treefile \
   --orthofinder-location orthofinder/Results_MetazoaCore \
   --out-dir libraries/metazoa_core/annotated-og-trees
 
 phyloODB my_project.db queue annotate-orthogroup-tree \
-  --input-dir libraries/metazoa_core/IQ-TREE_Orthogroup_trees \
+  --input-dir orthofinder/Results_MetazoaCore/IQ-TREE_Orthogroup_trees \
   --manifest-tsv libraries/metazoa_core/orthogroup_tree_manifest.tsv \
   --out-dir libraries/metazoa_core/annotated-og-trees
 ```
@@ -1967,6 +2145,10 @@ Relevant tasks:
 - `generate-lineage-csv`
 
 `export` is the endpoint of most projects. It uses the chosen library together with the current filtering context to write per-family FASTA datasets and associated reports.
+
+Family- and taxon-occupancy filtering are disabled by default. Both
+`--min-occupancy` and `--min-taxa-occupancy` default to `0`; supply a fraction
+between 0 and 1 only when the export should remove sparse families or taxa.
 
 This behaviour should be understood clearly. Export is not merely “write all BUSCOs”. It is an assembly step that can enforce the study’s current quality policy. Depending on flags, it can require prior filtering, ignore filtering, or target a specific decontamination run.
 

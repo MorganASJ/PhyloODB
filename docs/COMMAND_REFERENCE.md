@@ -1028,6 +1028,7 @@ Notes:
 - default filtering behaviour is opportunistic: if paralog-filtering or decontamination results exist, export uses them; if they do not exist, export still runs
 - `--require-paralog-filtering` and `--require-decontamination` make missing filtering state an error
 - `--disable-paralog-filter` and `--disable-decont-filter` ignore those filtering results even when they are available
+- `--min-occupancy` and `--min-taxa-occupancy` both default to `0`, so family- and taxon-occupancy filtering are disabled unless explicitly requested
 
 `--require` semantics:
 
