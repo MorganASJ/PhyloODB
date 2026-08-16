@@ -6,8 +6,10 @@ Phylogenetic Ortholog Database tooling with a registry-driven task system.
   queueing, storage, recovery, filtering, and export.
 - [Quickstart](docs/QUICKSTART.md) – first-run handbook for getting from an
   empty database to a basic export quickly.
-- [Mammal tutorial](tutorial/chimp_mammal_core_example.md) – worked end-to-end
-  mammal example with serial `run` commands.
+- [Manuscript Commands](docs/article_analysis.md) - guide for running the analyses
+  used in the manuscript.
+- [Command Reference](docs/COMMAND_REFERENCE.md) - list of available commands with 
+  an overview of their function.
 
 (RTFM)
 
