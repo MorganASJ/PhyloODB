@@ -11,8 +11,6 @@ Phylogenetic Ortholog Database tooling with a registry-driven task system.
 - [Command Reference](docs/COMMAND_REFERENCE.md) - list of available commands with 
   an overview of their function.
 
-(RTFM)
-
 ## Installation
 
 PhyloODB is a Python package, but full end-to-end analyses also require
