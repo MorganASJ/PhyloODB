@@ -9,6 +9,7 @@ import shutil
 import csv
 import glob
 import re
+from pathlib import Path
 from typing import Optional, Dict
 
 from ..task import Task
@@ -20,6 +21,10 @@ from ...selector_utils import (
 )
 from .trees import (
     DEFAULT_IQTREE_TASK_THREADS,
+    _tree_row_omitted,
+    _tree_row_reusable,
+    report_tree_outcomes,
+    alignment_tree_counts,
     DEFAULT_MAFFT_TASK_THREADS,
     expected_iqtree_tree_dir,
     expected_mafft_output_path,
@@ -793,7 +798,11 @@ class AddLibraryTask(Task):
         return None
 
     def _iqtree_tree_satisfies_orthogroup(self, orthogroup: str) -> bool:
-        return bool(not self._rerun_gene_trees_effective() and self._existing_iqtree_tree_path(orthogroup))
+        paths = self._tree_workspace_paths()
+        row = {"alignment_path": os.path.join(paths["align_dir"], f"{orthogroup}.fa"),
+               "tree_dir": os.path.join(paths["metadata_dir"], orthogroup), "prefix": orthogroup}
+        return bool(not self._rerun_gene_trees_effective() and _tree_row_reusable(row)
+                    and self._existing_iqtree_tree_path(orthogroup))
 
     def _queue_replacement_mafft_subtasks(self, exact_pairs_filtered: list[tuple[str, str]]) -> bool:
         if self._effective_gene_tree_source() != "iqtree":
@@ -855,9 +864,11 @@ class AddLibraryTask(Task):
             return False
         queued = False
         for row in self._replacement_tree_rows(exact_pairs_filtered):
+            if _tree_row_omitted(row) and not self._rerun_gene_trees_effective():
+                continue
             if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]):
                 continue
-            best_tree = self._find_iqtree_tree(row["tree_dir"], row["prefix"])
+            best_tree = (self._find_iqtree_tree(row["tree_dir"], row["prefix"]) if _tree_row_reusable(row) else None)
             if best_tree:
                 if self._rerun_gene_trees_effective():
                     pass
@@ -889,20 +900,25 @@ class AddLibraryTask(Task):
         if not rows:
             return False
         for row in rows:
+            if _tree_row_omitted(row):
+                continue
             if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]):
                 continue
-            best_tree = self._find_iqtree_tree(row["tree_dir"], row["prefix"])
+            best_tree = (self._find_iqtree_tree(row["tree_dir"], row["prefix"]) if _tree_row_reusable(row) else None)
             if not best_tree:
                 return False
         return True
 
     def _replacement_iqtree_incomplete_message(self, exact_pairs_filtered: list[tuple[str, str]]) -> str:
         rows = self._replacement_tree_rows(exact_pairs_filtered)
+        report_tree_outcomes(self, rows)
         failures = []
         for row in rows:
+            if _tree_row_omitted(row):
+                continue
             if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]):
                 continue
-            if self._find_iqtree_tree(row["tree_dir"], row["prefix"]):
+            if (self._find_iqtree_tree(row["tree_dir"], row["prefix"]) if _tree_row_reusable(row) else None):
                 continue
             candidates = [
                 os.path.join(row["tree_dir"], f"{row['prefix']}.treefile"),
@@ -978,6 +994,13 @@ class AddLibraryTask(Task):
             return True
         input_dir = self._annotation_input_dir()
         output_dir = self._annotation_output_dir()
+        entries = []
+        manifest_path = os.path.join(str(self.location), "orthogroup_tree_manifest.tsv")
+        if os.path.isfile(manifest_path):
+            with open(manifest_path, newline="") as handle:
+                entries = list(csv.DictReader(handle, delimiter="\t"))
+            if entries and all(row.get("outcome") == "omitted" for row in entries):
+                return True
         if not input_dir or not os.path.isdir(input_dir) or not os.path.isdir(output_dir):
             return False
         tree_bases = sorted(
@@ -988,6 +1011,8 @@ class AddLibraryTask(Task):
                 and (base.endswith("_tree.txt") or base.endswith(".treefile"))
             )
         )
+        omitted = {row["orthogroup"] for row in entries if row.get("outcome") == "omitted"}
+        tree_bases = [og for og in tree_bases if og not in omitted]
         if not tree_bases:
             return False
         return all(os.path.exists(os.path.join(output_dir, f"{orthogroup}.nex")) for orthogroup in tree_bases)
@@ -997,6 +1022,8 @@ class AddLibraryTask(Task):
         rows = self._replacement_tree_rows(exact_pairs_filtered)
         paths = self._tree_workspace_paths()
         manifest_path = os.path.join(self.location, "orthogroup_tree_manifest.tsv")
+        if self._effective_gene_tree_source() == "iqtree":
+            report_tree_outcomes(self, rows)
         source_run_ids = sorted(
             {
                 int(run_id)
@@ -1019,18 +1046,30 @@ class AddLibraryTask(Task):
                     "paralog_in_file",
                     "paralog_out_file",
                     "source_run_ids",
+                    "outcome", "input_count", "distinct_count", "omission_reason",
                 ]
             )
             for row in rows:
+                omitted = self._effective_gene_tree_source() == "iqtree" and _tree_row_omitted(row)
+                counts = alignment_tree_counts(row["alignment_path"]) if self._effective_gene_tree_source() == "iqtree" else {}
+                if omitted:
+                    Path(row["canonical_tree"]).unlink(missing_ok=True)
+                    for suffix in (".treefile", ".nex"):
+                        Path(paths["iqtree_dir"], row["orthogroup"] + suffix).unlink(missing_ok=True)
+                    Path(self._annotation_output_dir(), row["orthogroup"] + ".nex").unlink(missing_ok=True)
+                    writer.writerow([row["family_id"], row["orthogroup"], row["raw_fasta"], row["alignment_path"],
+                                     row["tree_dir"], "", "", "", "", ",".join(str(i) for i in source_run_ids),
+                                     "omitted", counts["input_count"], counts["distinct_count"], "insufficient_distinct_sequences"])
+                    continue
                 if self._effective_gene_tree_source() == "fasttree":
                     source_tree = self._find_fasttree_tree(row["orthogroup"])
                     if not source_tree:
                         raise FileNotFoundError(f"FastTree output missing for {row['orthogroup']}.")
                     tree_path_value = source_tree
                 else:
-                    existing_iqtree = None if self._rerun_gene_trees_effective() else self._existing_iqtree_tree_path(row["orthogroup"])
-                    best_tree = self._find_iqtree_tree(row["tree_dir"], row["prefix"])
-                    source_tree = existing_iqtree or best_tree
+                    existing_iqtree = self._existing_iqtree_tree_path(row["orthogroup"]) if self._iqtree_tree_satisfies_orthogroup(row["orthogroup"]) else None
+                    best_tree = (self._find_iqtree_tree(row["tree_dir"], row["prefix"]) if _tree_row_reusable(row) else None)
+                    source_tree = best_tree or existing_iqtree
                     if not source_tree:
                         raise FileNotFoundError(f"IQ-TREE output missing for {row['orthogroup']}.")
                     tree_path_value = row["canonical_tree"]
@@ -1048,6 +1087,7 @@ class AddLibraryTask(Task):
                         os.path.join(analyser_working_dir, f"{row['orthogroup']}_inparalogs.txt"),
                         os.path.join(analyser_working_dir, f"{row['orthogroup']}_outparalogs.txt"),
                         ",".join(str(run_id) for run_id in source_run_ids),
+                        "generated", counts.get("input_count", ""), counts.get("distinct_count", ""), "",
                     ]
                 )
         if self._effective_gene_tree_source() == "iqtree":
@@ -1079,6 +1119,12 @@ class AddLibraryTask(Task):
         exact_pairs_filtered: list[tuple[str, str]],
         compare_results: Dict[str, object],
     ) -> list[str]:
+        omitted_ogs = {row["orthogroup"] for row in self._replacement_tree_rows(exact_pairs_filtered)
+                       if self._effective_gene_tree_source() == "iqtree" and _tree_row_omitted(row)}
+        exact_pairs = [(family, og) for family, og in exact_pairs if og not in omitted_ogs]
+        exact_pairs_filtered = [(family, og) for family, og in exact_pairs_filtered if og not in omitted_ogs]
+        if not exact_pairs_filtered:
+            raise ValueError("No eligible core families: all candidate trees were omitted.")
         matched_exact_ogs = {orthogroup for _family_id, orthogroup in exact_pairs}
         matched_exact_ogs_filtered = {orthogroup for _family_id, orthogroup in exact_pairs_filtered}
         paralog_results = analyser._identify_paralogs(
@@ -1089,12 +1135,16 @@ class AddLibraryTask(Task):
         if paralog_results is None:
             raise ValueError("Failed to compute paralog summaries from replacement gene trees.")
         og_has_out = set(paralog_results.get("og_has_outparalogs", []) or [])
-        good_ogs = {orthogroup for orthogroup in matched_exact_ogs_filtered if orthogroup not in og_has_out}
+        assessed_ogs = set(paralog_results.get("above_species_threshold", {})) | set(paralog_results.get("below_species_threshold", {}))
+        good_ogs = {orthogroup for orthogroup in matched_exact_ogs_filtered
+                    if orthogroup in assessed_ogs and orthogroup not in og_has_out}
         cleaned_busco_families = sorted(
             str(family_id)
             for family_id, orthogroup in exact_pairs_filtered
             if orthogroup in good_ogs
         )
+        if not cleaned_busco_families:
+            raise ValueError("No eligible core families remain after tree and paralog assessment.")
         final_list_path = os.path.join(analyser.working_dir, f"{analyser.identifier}_good_busco_families.txt")
         with open(final_list_path, "w", encoding="utf-8") as handle:
             for family_id in cleaned_busco_families:

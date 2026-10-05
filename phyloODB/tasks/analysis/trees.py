@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import os
 import re
 import shlex
@@ -279,6 +281,86 @@ def run_mafft_alignment(
     return output_path, command
 
 
+_SUPPORT_FLAGS = {"-B", "-bb", "--ufboot", "-b", "--boot", "-bo", "--bonly", "-bc", "--bcon", "-alrt", "--alrt", "-lbp", "--lbp", "-abayes", "--abayes", "-wbt", "--wbtl", "--boot-trees", "-bnni", "--bnni", "--tbe"}
+_SUPPORT_VALUES = {"-B", "-bb", "--ufboot", "-b", "--boot", "-bo", "--bonly", "-bc", "--bcon", "-alrt", "--alrt", "-lbp", "--lbp"}
+
+
+def alignment_tree_counts(path: str) -> dict:
+    records = list(SeqIO.parse(path, "fasta"))
+    return {"input_count": len(records), "distinct_count": len({str(r.seq).upper() for r in records}),
+            "alignment_fingerprint": hashlib.sha256(Path(path).read_bytes()).hexdigest()}
+
+
+def tree_outcome(tree_dir: str, prefix: str, alignment: str) -> dict:
+    try:
+        result = json.loads(Path(tree_dir, f"{prefix}.outcome.json").read_text())
+        if result.get("alignment_fingerprint") == alignment_tree_counts(alignment)["alignment_fingerprint"]:
+            return result
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def tree_omitted(tree_dir: str, prefix: str, alignment: str) -> bool:
+    result = tree_outcome(tree_dir, prefix, alignment)
+    return result.get("outcome") == "omitted" and result.get("reason") == "insufficient_distinct_sequences"
+
+
+def _write_tree_outcome(tree_dir: str, prefix: str, result: dict) -> None:
+    os.makedirs(tree_dir, exist_ok=True)
+    destination = Path(tree_dir, f"{prefix}.outcome.json")
+    with tempfile.NamedTemporaryFile(mode="w", dir=tree_dir, delete=False) as handle:
+        json.dump(result, handle, indent=2)
+        temporary = handle.name
+    os.replace(temporary, destination)
+    ensure_shared_output_permissions(str(destination))
+
+
+def _without_support_flags(flags: list[str]) -> list[str]:
+    result = []
+    i = 0
+    while i < len(flags):
+        key = flags[i].split("=", 1)[0]
+        if key in _SUPPORT_FLAGS:
+            i += 2 if key in _SUPPORT_VALUES and "=" not in flags[i] else 1
+        else:
+            result.append(flags[i])
+            i += 1
+    return result
+
+
+def _tree_row_reusable(row: dict) -> bool:
+    alignment = row["alignment_path"]
+    if not os.path.exists(alignment):
+        return not Path(row["tree_dir"], f"{row['prefix']}.outcome.json").exists()
+    if alignment_tree_counts(alignment)["distinct_count"] < 3:
+        return False
+    marker = Path(row["tree_dir"], f"{row['prefix']}.outcome.json")
+    return not marker.exists() or tree_outcome(row["tree_dir"], row["prefix"], alignment).get("outcome") == "generated"
+
+
+def _tree_row_best(row: dict) -> Optional[str]:
+    return _read_best_tree_path(row["tree_dir"], row["prefix"]) if _tree_row_reusable(row) else None
+
+
+def report_tree_outcomes(task, rows: list[dict]) -> None:
+    generated = omitted = disabled = failed = 0
+    for row in rows:
+        result = tree_outcome(row["tree_dir"], row["prefix"], row["alignment_path"])
+        if _tree_row_omitted(row):
+            omitted += 1
+        elif _tree_row_best(row) or (row.get("canonical_tree") and valid_iqtree_tree(row["canonical_tree"]) and _tree_row_reusable(row)):
+            generated += 1
+            disabled += bool(result.get("support_requested") and not result.get("support_enabled"))
+        else:
+            failed += 1
+    task.log(f"Tree outcomes: generated={generated}, bootstrap-disabled={disabled}, omitted={omitted}, failed={failed}.", "INFO")
+
+
+def _tree_row_omitted(row: dict) -> bool:
+    return tree_omitted(row["tree_dir"], row["prefix"], row["alignment_path"])
+
+
 def run_iqtree_analysis(
     task: Task,
     *,
@@ -306,6 +388,22 @@ def run_iqtree_analysis(
         task_value=iqtree_flags,
         default_flags=["-m", "MFP"],
     )
+    counts = alignment_tree_counts(str(input_alignment))
+    requested_flags = list(flags)
+    if counts["distinct_count"] < 4:
+        flags = _without_support_flags(flags)
+    outcome = {**counts, "support_requested": requested_flags != _without_support_flags(requested_flags),
+               "support_enabled": flags != _without_support_flags(flags), "effective_flags": flags,
+               "outcome": "omitted" if counts["distinct_count"] < 3 else "generated",
+               "reason": "insufficient_distinct_sequences" if counts["distinct_count"] < 3 else ""}
+    if counts["distinct_count"] < 3:
+        for suffix in ("treefile", "contree"):
+            Path(tree_dir, f"{token}.{suffix}").unlink(missing_ok=True)
+        _write_tree_outcome(tree_dir, token, outcome)
+        task.log(f"Omitting {token}: {counts['distinct_count']} distinct aligned sequences.", "WARNING")
+        return tree_dir, "", []
+    if outcome["support_requested"] and not outcome["support_enabled"]:
+        task.log(f"Disabling branch support for {token}: fewer than 4 distinct sequences.", "WARNING")
     flags = _ensure_thread_flag(
         flags,
         thread_tokens={"-nt", "--threads", "--threads-max"},
@@ -316,6 +414,10 @@ def run_iqtree_analysis(
         flags.append("-redo")
     command = [iqtree_path, "-s", str(input_alignment), "--prefix", os.path.join(tree_dir, token), *flags]
     task.log(f"Running IQ-TREE: {' '.join(command)}", "DEBUG")
+    # An interrupted or failed launch must not adopt a previous tree as its result.
+    for suffix in ("treefile", "contree"):
+        Path(tree_dir, f"{token}.{suffix}").unlink(missing_ok=True)
+    _write_tree_outcome(tree_dir, token, {**outcome, "outcome": "failed", "reason": "incomplete_iqtree_run", "command": command})
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
         raise _external_command_error(
@@ -327,6 +429,8 @@ def run_iqtree_analysis(
     best_tree = _read_best_tree_path(tree_dir, token)
     if not best_tree:
         raise FileNotFoundError(f"IQ-TREE completed but no tree file was found in {tree_dir}.")
+    outcome["command"] = command
+    _write_tree_outcome(tree_dir, token, outcome)
     ensure_shared_output_permissions(tree_dir, recursive=True)
     return tree_dir, best_tree, command
 
@@ -406,7 +510,23 @@ class IQTreeTask(Task):
         force_restart = self.payload_bool("force_restart", False)
         best_tree = _read_best_tree_path(tree_dir, token)
         command: list[str] = []
+        counts = alignment_tree_counts(input_alignment)
+        previous = tree_outcome(tree_dir, token, input_alignment)
+        outcome_path = Path(tree_dir, f"{token}.outcome.json")
+        if outcome_path.exists() and not previous:
+            best_tree = None
+            self.data["force_restart"] = True
+            force_restart = True
+        if counts["distinct_count"] < 3:
+            best_tree = None
+        if tree_omitted(tree_dir, token, input_alignment) and not force_restart:
+            return True
+        if previous and previous.get("outcome") != "generated":
+            best_tree = None
         if best_tree and not force_restart:
+            if not previous:
+                _write_tree_outcome(tree_dir, token, {**counts, "outcome": "generated", "reason": "",
+                                                     "support_requested": None, "support_enabled": None, "reused": True})
             try:
                 ensure_shared_output_permissions(tree_dir, recursive=True)
             except OSError as exc:
@@ -432,6 +552,8 @@ class IQTreeTask(Task):
                 )
             except Exception as exc:  # boundary: external IQ-TREE/filesystem failure becomes this task error
                 return self.handle_exception("Failed to run IQ-TREE.", {"error": str(exc), "input_alignment": input_alignment})
+        if tree_omitted(tree_dir, token, input_alignment):
+            return True
         if not valid_iqtree_tree(best_tree):
             return self.handle_exception(
                 "IQ-TREE output is invalid or incomplete.",
@@ -561,7 +683,9 @@ class BuildBuscoTreesTask(ExportLibraryTask):
     def _queue_iqtree_subtasks(self) -> bool:
         queued = False
         for row in self._family_rows():
-            best_tree = _read_best_tree_path(row["tree_dir"], row["prefix"])
+            best_tree = _tree_row_best(row)
+            if _tree_row_omitted(row):
+                continue
             if best_tree:
                 continue
             self.queue_subtask(
@@ -585,16 +709,17 @@ class BuildBuscoTreesTask(ExportLibraryTask):
         if not rows:
             return False
         for row in rows:
-            best_tree = _read_best_tree_path(row["tree_dir"], row["prefix"])
-            if not best_tree:
+            best_tree = _tree_row_best(row)
+            if not best_tree and not _tree_row_omitted(row):
                 return False
         return True
 
     def _iqtree_incomplete_message(self) -> str:
         rows = self._family_rows()
+        report_tree_outcomes(self, rows)
         failures = []
         for row in rows:
-            if _read_best_tree_path(row["tree_dir"], row["prefix"]):
+            if _tree_row_omitted(row) or _tree_row_best(row):
                 continue
             candidates = [
                 os.path.join(row["tree_dir"], f"{row['prefix']}.treefile"),
@@ -618,20 +743,25 @@ class BuildBuscoTreesTask(ExportLibraryTask):
             }
         )
         source_run_ids_text = ",".join(str(run_id) for run_id in source_run_ids)
+        report_tree_outcomes(self, self._family_rows())
         with open(self.manifest_path, "w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle, delimiter="\t")
-            writer.writerow(["family_id", "raw_fasta", "alignment_path", "tree_dir", "tree_path", "source_run_ids"])
+            writer.writerow(["family_id", "raw_fasta", "alignment_path", "tree_dir", "tree_path", "source_run_ids", "outcome", "input_count", "distinct_count", "omission_reason"])
             for row in self._family_rows():
-                best_tree = _read_best_tree_path(row["tree_dir"], row["prefix"])
-                if not best_tree:
+                best_tree = _tree_row_best(row)
+                if not best_tree and not _tree_row_omitted(row):
                     raise FileNotFoundError(f"IQ-TREE output missing for family {row['family_id']}.")
                 writer.writerow([
                     row["family_id"],
                     row["raw_fasta"],
                     row["alignment_path"],
                     row["tree_dir"],
-                    best_tree,
+                    "" if _tree_row_omitted(row) else best_tree,
                     source_run_ids_text,
+                    "omitted" if _tree_row_omitted(row) else "generated",
+                    alignment_tree_counts(row["alignment_path"])["input_count"],
+                    alignment_tree_counts(row["alignment_path"])["distinct_count"],
+                    "insufficient_distinct_sequences" if _tree_row_omitted(row) else "",
                 ])
 
     def run(self):
@@ -1034,6 +1164,9 @@ class AnnotateOrthogroupTreeTask(Task, _OrthogroupTreeAnnotationMixin):
             base = os.path.basename(tree_path)
             orthogroup = base[:-9] if base.endswith("_tree.txt") else os.path.splitext(base)[0]
             row = manifest.get(orthogroup, {})
+            if row.get("outcome") == "omitted":
+                Path(output_dir, f"{orthogroup}.nex").unlink(missing_ok=True)
+                continue
             family_id = str(row.get("family_id") or row.get("busco_family_id") or "").strip()
             raw_source_run_ids = row.get("source_run_ids") or self.data.get("source_run_ids") or []
             if isinstance(raw_source_run_ids, str):
