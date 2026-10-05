@@ -1459,6 +1459,15 @@ phyloODB my_project.db queue verify-downloads \
 
 Verify-task reports are written under the shared reports root by default, in the `verify-reports/task_<task_id>_<timestamp>.../` namespace. `--report` still overrides the specific report filename when you want an explicit path.
 
+`verify-busco --repair` also restores missing or incorrect family sequence artifact links for OrthoFinder-derived cleaned BUSCO runs, using their source run artifacts or existing sequence locations. It preserves the cleaned family statuses and keeps derived runs distinct from the source runs that share their output directory. Reingestion is not required for this artifact repair; the original sequence files must still be available.
+
+```bash
+phyloODB metazoa.db run verify-busco \
+  --accessions @METAZOA_FULL \
+  --library-name metazoa_odb12 \
+  --repair
+```
+
 `verify-busco --reingest` understands run-centric BUSCO layouts and records run metadata in the BUSCO run tables.  
 Going forward, run folders should follow the pipeline-aware naming pattern `run_<pipeline>_<lineage>` (for example `run_miniprot_metazoa_odb12` or `run_augustus_metazoa_odb12`).
 

@@ -5,7 +5,7 @@ try:
     __version__ = version("phyloODB")
 except PackageNotFoundError:
     # Source-tree fallback; keep in sync with pyproject.toml.
-    __version__ = "0.2.5"
+    __version__ = "0.2.6"
 
 
 def main(*args, **kwargs):

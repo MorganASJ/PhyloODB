@@ -1305,6 +1305,7 @@ class AddLibraryTask(Task):
                 self.db_manager.busco.delete_run(int(new_run_id))
                 self.log(f"Failed to clone BUSCO family locations for cleaned run {new_run_id}.", "WARNING")
                 continue
+            self.db_manager.busco.ensure_run_family_artifacts(int(new_run_id), repair=True)
             if not self.db_manager.busco.update_run(int(new_run_id), counts=counts, completed=True):
                 self.db_manager.busco.delete_run(int(new_run_id))
                 self.log(f"Failed to finalize cleaned BUSCO run {new_run_id}.", "WARNING")
