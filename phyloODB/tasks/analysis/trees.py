@@ -304,7 +304,7 @@ def run_iqtree_analysis(
     flags = _flags_from_env_or_task(
         env_value=task.db_manager.env.get("IQTREE_FLAGS"),
         task_value=iqtree_flags,
-        default_flags=["-m", "MFP", "-B", "1000"],
+        default_flags=["-m", "MFP"],
     )
     flags = _ensure_thread_flag(
         flags,
@@ -954,9 +954,11 @@ class _OrthogroupTreeAnnotationMixin:
             if not node.is_leaf():
                 children = "(" + ",".join(_format_node(child) for child in node.children) + ")"
             label = ""
-            if node.name:
+            if node.is_leaf() and node.name:
                 display_name = _display_name(str(node.name))
                 label = "'" + display_name.replace("'", "''") + "'"
+            elif node.name:
+                label = "'" + str(node.name).replace("'", "''") + "'"
             color = ""
             if node.is_leaf():
                 leaf_name = str(node.name)

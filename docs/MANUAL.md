@@ -3042,3 +3042,5 @@ Search, clustering, and gene-prediction tools:
 - Miniprot: Li, H. (2023). [Protein-to-genome alignment with miniprot](https://doi.org/10.1093/bioinformatics/btad014). *Bioinformatics*, 39(1), btad014.
 - MetaEuk: Levy Karin, E., Mirdita, M. and Soeding, J. (2020). [MetaEuk: sensitive, high-throughput gene discovery, and annotation for large-scale eukaryotic metagenomics](https://doi.org/10.1186/s40168-020-00808-x). *Microbiome*, 8, 48.
 - AUGUSTUS: Stanke, M. and Morgenstern, B. (2005). [AUGUSTUS: a web server for gene prediction in eukaryotes that allows user-defined constraints](https://doi.org/10.1093/nar/gki458). *Nucleic Acids Research*, 33(Web Server issue), W465-W467.
+
+IQ-TREE defaults to model selection (`-m MFP`) without bootstrap. To request bootstrap, set `phyloODB my_project.db set var IQTREE_FLAGS="-m MFP -B 1000"` or pass `--iqtree-flags "-m MFP -B 1000"` when queuing a tree task. Task flags override database flags. Annotation and paralog detection accept trees with or without support labels.
