@@ -1871,6 +1871,8 @@ class VerifyBuscoTask(_ArtifactVerificationMixin, Task):
         for row in run_rows or []:
             row_id = int(row[0])
             row_pipeline = str(row[6] or "").lower()
+            if row_pipeline == "orthofinder":
+                continue  # Derived runs intentionally share the source output directory.
             row_mode = str(row[5] or "").lower()
             row_result_dir = self._canonical_busco_path(row[7]) if row[7] else None
             if row_result_dir != target_dir:
@@ -1928,6 +1930,8 @@ class VerifyBuscoTask(_ArtifactVerificationMixin, Task):
         rows_by_result_dir: Dict[Optional[str], List[tuple]] = defaultdict(list)
 
         for row in run_rows or []:
+            if str(row[6] or "").lower() == "orthofinder":
+                continue  # Distinct cleaned runs may share both directory and profile.
             canonical_result_dir = self._canonical_busco_path(row[7]) if row[7] else None
             pipeline = str(row[6] or "").lower()
             input_mode = str(row[5] or "").lower()
@@ -2078,6 +2082,15 @@ class VerifyBuscoTask(_ArtifactVerificationMixin, Task):
             summary["usable"] = False
             summary["outside_current_binding"] = True
             return summary
+        missing_family_links = self.db_manager.busco.ensure_run_family_artifacts(
+            run_id, repair=self.repair,
+        )
+        if missing_family_links:
+            self.log(
+                f"{accession}: BUSCO run {run_id}: "
+                f"{'repaired' if self.repair else 'found'} {missing_family_links} missing or incorrect family artifact links.",
+                "INFO" if self.repair else "WARNING",
+            )
         if run_dir and self.verify_artifacts and self.repair:
             locations = self.db_manager.busco.get_run_family_locations(run_id)
             self._register_busco_run_artifacts(run_id, accession, library_id, run_dir, locations)
@@ -2088,6 +2101,8 @@ class VerifyBuscoTask(_ArtifactVerificationMixin, Task):
             stale_missing=self.stale_missing,
             restore_found=self.restore_found,
         )
+        summary["family_links_missing"] = missing_family_links
+        summary["restored"] = int(summary.get("restored", 0) or 0) + (missing_family_links if self.repair else 0)
         summary["run_dir"] = run_dir
         usable = self._run_is_usable_for_purpose(run_id, "default")
         target_status = "completed" if usable else "stale"

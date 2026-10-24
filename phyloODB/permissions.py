@@ -330,6 +330,7 @@ def task_paths(manager: Any, spec: Any, payload: Mapping[str, Any]) -> tuple[lis
 
 
 def preflight_task(manager: Any, spec: Any, payload: Mapping[str, Any]) -> None:
+    metadata = dict(getattr(spec, "metadata", {}) or {})
     policy = policy_from_manager(manager)
     apply_shared_umask(policy)
     ensure_quick_path(Path(manager.get_path()).resolve().parent, policy=policy)

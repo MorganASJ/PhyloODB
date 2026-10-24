@@ -1459,6 +1459,15 @@ phyloODB my_project.db queue verify-downloads \
 
 Verify-task reports are written under the shared reports root by default, in the `verify-reports/task_<task_id>_<timestamp>.../` namespace. `--report` still overrides the specific report filename when you want an explicit path.
 
+`verify-busco --repair` also restores missing or incorrect family sequence artifact links for OrthoFinder-derived cleaned BUSCO runs, using their source run artifacts or existing sequence locations. It preserves the cleaned family statuses and keeps derived runs distinct from the source runs that share their output directory. Reingestion is not required for this artifact repair; the original sequence files must still be available.
+
+```bash
+phyloODB metazoa.db run verify-busco \
+  --accessions @METAZOA_FULL \
+  --library-name metazoa_odb12 \
+  --repair
+```
+
 `verify-busco --reingest` understands run-centric BUSCO layouts and records run metadata in the BUSCO run tables.  
 Going forward, run folders should follow the pipeline-aware naming pattern `run_<pipeline>_<lineage>` (for example `run_miniprot_metazoa_odb12` or `run_augustus_metazoa_odb12`).
 
@@ -3042,3 +3051,7 @@ Search, clustering, and gene-prediction tools:
 - Miniprot: Li, H. (2023). [Protein-to-genome alignment with miniprot](https://doi.org/10.1093/bioinformatics/btad014). *Bioinformatics*, 39(1), btad014.
 - MetaEuk: Levy Karin, E., Mirdita, M. and Soeding, J. (2020). [MetaEuk: sensitive, high-throughput gene discovery, and annotation for large-scale eukaryotic metagenomics](https://doi.org/10.1186/s40168-020-00808-x). *Microbiome*, 8, 48.
 - AUGUSTUS: Stanke, M. and Morgenstern, B. (2005). [AUGUSTUS: a web server for gene prediction in eukaryotes that allows user-defined constraints](https://doi.org/10.1093/nar/gki458). *Nucleic Acids Research*, 33(Web Server issue), W465-W467.
+
+IQ-TREE defaults to model selection (`-m MFP`) without bootstrap. To request bootstrap, set `phyloODB my_project.db set var IQTREE_FLAGS="-m MFP -B 1000"` or pass `--iqtree-flags "-m MFP -B 1000"` when queuing a tree task. Task flags override database flags. Annotation and paralog detection accept trees with or without support labels.
+
+From 0.2.5, tree tasks compare full aligned sequences case-insensitively before IQ-TREE. Requested bootstrap and branch-support tests are disabled with three distinct sequences; four or more retain the requested settings. Families with fewer than three distinct sequences are deliberately omitted and excluded from derived core selection. Their manifest entries retain counts and an omission reason with an empty tree path. Per-family `.outcome.json` files fingerprint the alignment so stale omissions cannot be reused after input changes. Existing valid legacy trees remain reusable; `--rerun-gene-trees` requests rebuilding. Omitted families do not trigger retries or annotation. An all-omitted core build fails with a clear no-eligible-families error.

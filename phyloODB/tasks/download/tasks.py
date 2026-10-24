@@ -953,6 +953,7 @@ class DownloadAssembliesTask(Task):
     def run(self):
         '''Runs the task'''
         clean_targets: List[str] = []
+        download_failures = list(self.data.get("_download_failures", []) or [])
 
         if self.stage < 1:
             # Initialize the NCBI helper
@@ -1213,17 +1214,42 @@ class DownloadAssembliesTask(Task):
                             "download assembly",
                             RuntimeError(error_type),
                         )
-                return self.fail_if_batch_failures("Assembly download batch failed")
+                # Persist the failures across the suspend/resume boundary used by
+                # the proteome-preparation subtask.  Successful downloads must
+                # still receive their requested default profile before the
+                # parent batch is finally marked as failed.
+                download_failures = [
+                    {"accession": accession, "error_type": error_type}
+                    for accession, error_type in failures
+                ]
+                self.data["_download_failures"] = download_failures
 
-            self.log(f"Downloaded {len(self.accessions)}/{len(self.accessions)} assemblies successfully.", "INFO")
+            successful_count = sum(status == 0 for status in status_by_accession.values())
+            self.log(
+                f"Downloaded {successful_count}/{len(self.accessions)} assemblies successfully.",
+                "INFO",
+            )
 
             if self.clean_isoforms and not self.skip_clean_isoforms:
-                clean_targets = [acc for acc in self.accessions if protein_by_accession.get(acc)]
+                clean_targets = [
+                    acc
+                    for acc in self.accessions
+                    if status_by_accession.get(acc) == 0 and protein_by_accession.get(acc)
+                ]
             self.data["_clean_targets"] = clean_targets
         else:
             clean_targets = list(self.data.get("_clean_targets", []) or [])
 
         if not (self.clean_isoforms and not self.skip_clean_isoforms and clean_targets):
+            if download_failures:
+                self._batch_failures.clear()
+                for failure in download_failures:
+                    self.collect_batch_failure(
+                        failure["accession"],
+                        "download assembly",
+                        RuntimeError(failure["error_type"]),
+                    )
+                return self.fail_if_batch_failures("Assembly download batch failed")
             return True
 
         def queue_clean_subtask():
@@ -1263,4 +1289,13 @@ class DownloadAssembliesTask(Task):
             return "ERROR"
         if outcome is False:
             return False
+        if download_failures:
+            self._batch_failures.clear()
+            for failure in download_failures:
+                self.collect_batch_failure(
+                    failure["accession"],
+                    "download assembly",
+                    RuntimeError(failure["error_type"]),
+                )
+            return self.fail_if_batch_failures("Assembly download batch failed")
         return True

@@ -3457,6 +3457,62 @@ class BuscoRepository(BaseRepository):
             **kwargs,
         )
 
+    def ensure_run_family_artifacts(self, run_id: int, *, repair: bool = False) -> int:
+        """Audit/backfill sequence links without changing derived family statuses."""
+        run_id = int(run_id)
+        candidates = {}
+        families = {(str(row[0]), int(row[1]), str(row[2]))
+                    for row in self.get_run_family_data(run_id)}
+        params_row = self.core.fetchone(
+            "SELECT pipeline_params_effective_json FROM BUSCO_Runs WHERE run_id = ?",
+            (run_id,),
+        )
+        try:
+            params = json.loads(params_row[0] or "{}") if params_row else {}
+            source_id = int(params.get("derived_from_run_id") or 0)
+        except (ValueError, TypeError, AttributeError):
+            source_id = 0
+        # Prefer rooted source artifacts when legacy locations became stale after a move.
+        if source_id and source_id != run_id:
+            for kind in ("prot", "nucl"):
+                for row in self.get_export_family_rows(run_ids=[source_id], sequence_kind=kind):
+                    key = (row["family_id"], row["library_id"], row["accession"])
+                    path = row.get("artifact_path") or row.get("artifact_location")
+                    if key in families and path and os.path.isfile(path):
+                        candidates[(*key, kind)] = path
+        for family, library, accession, path in self.get_run_family_locations(run_id):
+            if not path or not os.path.isfile(path):
+                continue
+            lower = str(path).lower()
+            if lower.endswith((".faa", ".faa.gz", ".pep", ".pep.gz", ".aa", ".aa.gz")):
+                kind = "prot"
+            elif lower.endswith((".fna", ".fna.gz", ".ffn", ".ffn.gz", ".cds", ".cds.gz")):
+                kind = "nucl"
+            else:
+                continue
+            key = (str(family), int(library), str(accession))
+            if key in families:
+                candidates.setdefault((*key, kind), str(path))
+        missing = 0
+        for (family, library, accession, kind), path in candidates.items():
+            link = self.core.fetchone(
+                "SELECT artifact_id FROM BUSCO_Run_Family_Artifacts "
+                "WHERE run_id = ? AND family_id = ? AND library_id = ? "
+                "AND accession = ? AND sequence_kind = ?",
+                (run_id, family, library, accession, kind),
+            )
+            resolved = self.manager.artifacts.resolve_path(int(link[0])) if link and link[0] is not None else None
+            if resolved and os.path.abspath(resolved) == os.path.abspath(path):
+                continue
+            missing += 1
+            if repair:
+                self.register_family_artifact(
+                    run_id=run_id, family_id=family, library_id=library,
+                    accession=accession, path=path, sequence_kind=kind,
+                    format="fasta", metadata={"source": "family-artifact-repair"},
+                )
+        return missing
+
     def register_family_artifact(
         self,
         *,
